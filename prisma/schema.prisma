@@ -1,0 +1,247 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// MÓDULO CLIENTES
+// ==========================================
+
+model Cliente {
+  id             Int       @id @default(autoincrement())
+  nombre         String
+  apellidos      String?
+  documento      String?   @unique // DNI o RUC
+  tipoDocumento  String?   @default("DNI")
+  email          String?   
+  telefono       String?
+  direccion      String?
+  fechaRegistro  DateTime  @default(now())
+
+  // Relaciones
+  vehiculos      Vehiculo[]
+  guias          NumeroGuia[]
+  citas          Cita[]
+  transacciones  Transaccion[]
+  resenas        Resena[]
+}
+
+model Cotizacion {
+  id             Int       @id @default(autoincrement())
+  nombre         String
+  email          String
+  telefono       String
+  vehiculo       String
+  servicio       String
+  mensaje        String
+  estado         String    @default("PENDIENTE") // PENDIENTE, ATENDIDO, RECHAZADO
+  fecha          DateTime  @default(now())
+}
+
+model Resena {
+  id             Int       @id @default(autoincrement())
+  clienteId      Int
+  calificacion   Int       // 1 a 5
+  comentario     String?
+  respuestaTaller String?
+  fecha          DateTime  @default(now())
+
+  cliente        Cliente   @relation(fields: [clienteId], references: [id])
+}
+
+// ==========================================
+// MÓDULO TALLER
+// ==========================================
+
+model Vehiculo {
+  id             Int       @id @default(autoincrement())
+  placa          String    @unique
+  marca          String
+  modelo         String
+  anio           Int?
+  color          String?
+  clienteId      Int
+
+  cliente        Cliente   @relation(fields: [clienteId], references: [id])
+  guias          NumeroGuia[]
+  citas          Cita[]
+}
+
+model NumeroGuia {
+  id             Int       @id @default(autoincrement())
+  fechaRecepcion DateTime  @default(now())
+  estado         String    @default("PENDIENTE") // PENDIENTE, EN_PROCESO, FINALIZADO, ENTREGADO
+  diagnostico    String?
+  observaciones  String?
+  
+  // Relaciones
+  clienteId      Int
+  vehiculoId     Int
+
+  cliente        Cliente   @relation(fields: [clienteId], references: [id])
+  vehiculo       Vehiculo  @relation(fields: [vehiculoId], references: [id])
+  
+  tecnicos       Trabajador[] @relation("GuiaTrabajadores")
+  movimientosInventario MovimientoInventario[]
+  transacciones  Transaccion[]
+}
+
+model Cita {
+  id             Int       @id @default(autoincrement())
+  fechaHora      DateTime
+  motivo         String
+  estado         String    @default("PROGRAMADA") // PROGRAMADA, ATENDIDA, CANCELADA
+
+  clienteId      Int
+  vehiculoId     Int
+
+  cliente        Cliente   @relation(fields: [clienteId], references: [id])
+  vehiculo       Vehiculo  @relation(fields: [vehiculoId], references: [id])
+}
+
+// ==========================================
+// MÓDULO PERSONAL
+// ==========================================
+
+model Trabajador {
+  id               Int       @id @default(autoincrement())
+  nombre           String
+  apellidos        String
+  dni              String    @unique
+  rol              String    @default("TECNICO") // ADMIN, RECEPCION, TECNICO
+  telefono         String?
+  estado           Boolean   @default(true) // Activo o no
+  
+  // Nuevos campos para planilla
+  sueldoBase       Float     @default(0)
+  porcentajeAfp    Float     @default(0) // % de descuento por AFP/ONP
+  porcentajeSeguro Float     @default(0) // % de descuento por Seguro
+
+  // Campos adicionales de perfil
+  email            String?
+  direccion        String?
+  observaciones    String?
+  fechaIngreso     String?
+  proximoPago      String?
+
+  asistencias      Asistencia[]
+  guias            NumeroGuia[] @relation("GuiaTrabajadores") // M:N
+}
+
+model Asistencia {
+  id             Int       @id @default(autoincrement())
+  trabajadorId   Int
+  fecha          DateTime  @default(now())
+  horaEntrada    DateTime?
+  horaSalida     DateTime?
+
+  trabajador     Trabajador @relation(fields: [trabajadorId], references: [id])
+}
+
+// ==========================================
+// MÓDULO INVENTARIO
+// ==========================================
+
+model Producto {
+  id             Int       @id @default(autoincrement())
+  sku            String    @unique
+  nombre         String
+  descripcion    String?
+  categoria      String?
+  marca          String?
+  precio         Float
+  stockActual    Int       @default(0)
+  stockMinimo    Int       @default(0)
+  foto           String?
+
+  movimientos    MovimientoInventario[]
+}
+
+model MovimientoInventario {
+  id             Int       @id @default(autoincrement())
+  productoId     Int
+  tipo           String    // ENTRADA, SALIDA
+  cantidad       Int
+  motivo         String?   // COMPRA, USO_TALLER, VENTA_DIRECTA, AJUSTE
+  fecha          DateTime  @default(now())
+  
+  // Relación opcional con OT si salió para un taller
+  numeroGuiaId   Int?
+
+  producto       Producto  @relation(fields: [productoId], references: [id])
+  numeroGuia     NumeroGuia? @relation(fields: [numeroGuiaId], references: [id])
+}
+
+// ==========================================
+// MÓDULO FINANZAS
+// ==========================================
+
+model Transaccion {
+  id             Int       @id @default(autoincrement())
+  numero         String    @unique // Ej: TXN-001
+  tipo           String    // INGRESO, EGRESO
+  monto          Float
+  metodoPago     String    // EFECTIVO, TARJETA, YAPE, TRANSFERENCIA
+  concepto       String
+  categoria      String    @default("Otros") // Venta, Servicio, etc
+  fecha          String    // Formato DD/MM/YYYY para coincidir con front
+  hora           String    // Formato HH:mm
+  estado         String    @default("COMPLETADO") // COMPLETADO, ANULADO
+  nota           String?
+  cierreCajaId   Int?
+
+  // Relaciones
+  clienteId      Int?
+  clienteNombre  String?   // Para guardar un cliente que no está registrado
+  numeroGuiaId   Int?
+
+  cliente        Cliente?  @relation(fields: [clienteId], references: [id])
+  numeroGuia     NumeroGuia? @relation(fields: [numeroGuiaId], references: [id])
+  cierreCaja     CierreCaja? @relation(fields: [cierreCajaId], references: [id])
+}
+
+model CierreCaja {
+  id             Int       @id @default(autoincrement())
+  fechaApertura  DateTime  @default(now())
+  fechaCierre    DateTime?
+  montoInicial   Float     @default(0)
+  montoFinal     Float?
+  estado         String    @default("ABIERTA") // ABIERTA, CERRADA
+  observaciones  String?
+
+  transacciones  Transaccion[]
+}
+
+// ==========================================
+// CONFIGURACIÓN (Taller y Credenciales)
+// ==========================================
+model Configuracion {
+  id                Int      @id @default(1)
+  nombreResponsable String   @default("Administrador")
+  email             String   @default("admin@tallerjp.com")
+  telefono          String   @default("+51 999 888 777")
+  nombreTaller      String   @default("Taller Mecánico JP")
+  ruc               String   @default("20601234567")
+  direccion         String   @default("Av. Los Mecánicos 123, Lima")
+  
+  // Seguridad
+  usuario           String   @default("admin")
+  password          String   @default("admin")
+
+  // Notificaciones (Opcional por ahora)
+  notifEmail        Boolean  @default(true)
+  notifSMS          Boolean  @default(false)
+  notifApp          Boolean  @default(true)
+}
+
+
