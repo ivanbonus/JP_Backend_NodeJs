@@ -33,7 +33,6 @@ model Cliente {
   guias          NumeroGuia[]
   citas          Cita[]
   transacciones  Transaccion[]
-  resenas        Resena[]
 }
 
 model Cotizacion {
@@ -50,13 +49,15 @@ model Cotizacion {
 
 model Resena {
   id             Int       @id @default(autoincrement())
-  clienteId      Int
-  calificacion   Int       // 1 a 5
-  comentario     String?
-  respuestaTaller String?
+  nombre         String
+  email          String?
+  vehiculo       String?
+  servicio       String?
+  calificacion   Float     // 1 a 5, permite medios puntos
+  comentario     String
+  respuesta      String?
+  estado         String    @default("Pendiente") // Pendiente, Publicada, Rechazada
   fecha          DateTime  @default(now())
-
-  cliente        Cliente   @relation(fields: [clienteId], references: [id])
 }
 
 // ==========================================

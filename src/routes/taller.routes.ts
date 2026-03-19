@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getGuias, createGuia, updateGuia, deleteGuia, createVehiculo, getCitas, createCita, deleteCita } from '../controllers/taller.controller';
+import { getGuias, createGuia, updateGuia, deleteGuia, createVehiculo, deleteVehiculo, getCitas, createCita, deleteCita } from '../controllers/taller.controller';
 
 const router = Router();
 
@@ -15,6 +15,7 @@ router.delete('/guias/:id', deleteGuia);
 // RUTAS VEHICULOS (TALLER)
 // =======================
 router.post('/vehiculos', createVehiculo);
+router.delete('/vehiculos/:id', deleteVehiculo);
 
 // =======================
 // RUTAS CITAS

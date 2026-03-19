@@ -18,6 +18,17 @@ export const getGuias = async (req: Request, res: Response) => {
   }
 };
 
+export const deleteVehiculo = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await prisma.vehiculo.delete({ where: { id: Number(id) } });
+    res.json({ message: 'Vehículo eliminado correctamente.' });
+  } catch (error) {
+    console.error('Error al borrar vehículo:', error);
+    res.status(500).json({ error: 'No se pudo eliminar el vehículo. Es posible que tenga órdenes de trabajo asociadas.' });
+  }
+};
+
 export const createGuia = async (req: Request, res: Response) => {
   try {
     const { clienteId, vehiculoId, diagnostico, observaciones, tecnicosIds } = req.body;

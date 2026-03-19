@@ -8,6 +8,7 @@ import dashboardRoutes from './dashboard.routes';
 import configuracionRoutes from './configuracion.routes';
 import authRoutes from './auth.routes';
 import cotizacionRoutes from './cotizacion.routes';
+import webRoutes from './web.routes';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/configuracion', configuracionRoutes);
 router.use('/auth', authRoutes);
 router.use('/cotizaciones', cotizacionRoutes);
+router.use('/web', webRoutes);
 
 export default router;
