@@ -9,6 +9,7 @@ const router = (0, express_1.Router)();
 router.get('/', inventario_controller_1.getProductos);
 router.post('/', inventario_controller_1.createProducto);
 router.put('/:id', inventario_controller_1.updateProducto);
+router.patch('/:id/toggle-web', inventario_controller_1.toggleVisibleWeb);
 router.delete('/:id', inventario_controller_1.deleteProducto);
 // =======================
 // RUTAS MOVIMIENTOS STOCK

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getTransacciones, createTransaccion, anularTransaccion, updateTransaccion, getCierresCaja, createCierreCaja } from '../controllers/finanzas.controller';
+import { getTransacciones, createTransaccion, anularTransaccion, updateTransaccion, getCierresCaja, createCierreCaja, generarBoletaPdf } from '../controllers/finanzas.controller';
 
 const router = Router();
 
@@ -10,6 +10,7 @@ router.get('/transacciones', getTransacciones);
 router.post('/transacciones', createTransaccion);
 router.put('/transacciones/:id/anular', anularTransaccion);
 router.put('/transacciones/:id', updateTransaccion);
+router.post('/transacciones/:id/boleta', generarBoletaPdf);
 
 // =======================
 // RUTAS CIERRE CAJA

@@ -41,10 +41,15 @@ model Cotizacion {
   email          String
   telefono       String
   vehiculo       String
+  placa          String?
+  documento      String?
+  atencion       String?
+  direccion      String?
   servicio       String
   mensaje        String
   estado         String    @default("PENDIENTE") // PENDIENTE, ATENDIDO, RECHAZADO
   fecha          DateTime  @default(now())
+  datosCotizacion Json?
 }
 
 model Resena {
@@ -95,6 +100,7 @@ model NumeroGuia {
   tecnicos       Trabajador[] @relation("GuiaTrabajadores")
   movimientosInventario MovimientoInventario[]
   transacciones  Transaccion[]
+  detalles       GuiaDetalle[]
 }
 
 model Cita {
@@ -108,6 +114,16 @@ model Cita {
 
   cliente        Cliente   @relation(fields: [clienteId], references: [id])
   vehiculo       Vehiculo  @relation(fields: [vehiculoId], references: [id])
+}
+
+model GuiaDetalle {
+  id             Int       @id @default(autoincrement())
+  descripcion    String
+  cantidad       Int       @default(1)
+  precioUnit     Float     @default(0)
+  
+  numeroGuiaId   Int
+  numeroGuia     NumeroGuia @relation(fields: [numeroGuiaId], references: [id], onDelete: Cascade)
 }
 
 // ==========================================
@@ -164,6 +180,7 @@ model Producto {
   stockActual    Int       @default(0)
   stockMinimo    Int       @default(0)
   foto           String?
+  visibleEnWeb   Boolean   @default(false)
 
   movimientos    MovimientoInventario[]
 }
@@ -245,4 +262,68 @@ model Configuracion {
   notifApp          Boolean  @default(true)
 }
 
+// ==========================================
+// MÓDULO WEB (Formularios Adicionales)
+// ==========================================
 
+model Reclamacion {
+  id                     Int      @id @default(autoincrement())
+  nombres                String
+  apellidos              String
+  tipoDocumento          String
+  numeroDocumento        String
+  direccion              String
+  departamento           String
+  provincia              String
+  distrito               String
+  email                  String
+  telefonoCelular        String
+  telefonoFijo           String?
+  bienContratado         String
+  descripcionBien        String   @db.Text
+  tipoReclamacion        String
+  descripcionReclamacion String   @db.Text
+  aceptaPrivacidad       Boolean  @default(true)
+  estado                 String   @default("PENDIENTE") // PENDIENTE, ATENDIDO
+  fecha                  DateTime @default(now())
+}
+
+model Postulacion {
+  id               Int      @id @default(autoincrement())
+  nombres          String
+  apellidoPaterno  String
+  apellidoMaterno  String
+  tipoDocumento    String
+  numeroDocumento  String
+  direccion        String
+  departamento     String
+  provincia        String
+  distrito         String
+  email            String
+  telefono         String
+  areaPostula      String
+  aceptaPrivacidad Boolean  @default(true)
+  estado           String   @default("REVISION") // REVISION, CONTACTADO, DESCARTADO
+  fecha            DateTime @default(now())
+}
+model CitaWeb {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  email           String
+  telefono        String
+  vehiculo        String
+  mensaje         String?
+  fechaCita       DateTime
+  estado          String   @default("PENDIENTE") // PENDIENTE, CONFIRMADA, CANCELADA
+  fechaSolicitud  DateTime @default(now())
+}
+
+model BloqueoCita {
+  id          Int      @id @default(autoincrement())
+  fecha       DateTime // Fecha bloqueada
+  todoElDia   Boolean  @default(true)
+  horaInicio  String?  // Ej: "08:00"
+  horaFin     String?  // Ej: "17:00"
+  motivo      String?
+  fechaRegistro DateTime @default(now())
+}

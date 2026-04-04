@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import { prisma } from '../index';
+import path from 'path';
+import fs from 'fs';
+import puppeteer from 'puppeteer';
 
 // Obtener todas las transacciones (historial)
 export const getTransacciones = async (req: Request, res: Response) => {
@@ -172,3 +175,214 @@ export const createCierreCaja = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Error del servidor al registrar cierre de caja' });
   }
 };
+
+// ========================
+// GENERACIÓN DE BOLETA PDF
+// ========================
+
+export const generarBoletaPdf = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Obtener la transacción de la BD
+    const txn = await prisma.transaccion.findUnique({
+      where: { id: parseInt(id as string) },
+      include: {
+        cliente: true,
+        numeroGuia: {
+          include: {
+            detalles: true
+          }
+        }
+      }
+    });
+
+    if (!txn) {
+      res.status(404).json({ error: 'Transacción no encontrada' });
+      return;
+    }
+
+    // 2. Leer la plantilla HTML
+    const templatePath = path.join(__dirname, '../templates/boletaTemplate.html');
+    let htmlContent = fs.readFileSync(templatePath, 'utf8');
+
+    // 3. Cargar el logo como Base64
+    const logoPath = path.join(__dirname, '../assets/images/logo-jp.png');
+    let logoBase64 = '';
+    if (fs.existsSync(logoPath)) {
+      const bitmap = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${bitmap.toString('base64')}`;
+    }
+
+    // 4. Generar las filas de productos
+    let filasProductos = '';
+    if (txn.numeroGuia && txn.numeroGuia.detalles.length > 0) {
+      // Si tiene una guía asociada con detalles, los usamos
+      txn.numeroGuia.detalles.forEach((det: any) => {
+        filasProductos += `
+          <tr>
+            <td style="width: 8mm;">${det.cantidad}</td>
+            <td>${det.descripcion}</td>
+            <td class="text-right" style="width: 15mm;">${(det.cantidad * det.precioUnit).toFixed(2)}</td>
+          </tr>
+        `;
+      });
+    } else if (txn.nota && txn.nota.includes('DETALLES:[')) {
+      // Si es una Venta Web, sacamos los detalles de la nota
+      try {
+        const jsonPart = txn.nota.split('DETALLES:')[1];
+        const items = JSON.parse(jsonPart);
+        items.forEach((p: any) => {
+          filasProductos += `
+            <tr>
+              <td style="width: 8mm;">${p.cantidad}</td>
+              <td>${p.nombre}</td>
+              <td class="text-right" style="width: 15mm;">${(p.cantidad * p.precio).toFixed(2)}</td>
+            </tr>
+          `;
+        });
+      } catch (e) {
+        filasProductos = `<tr><td style="width: 8mm;">1</td><td>${txn.concepto}</td><td class="text-right">${txn.monto.toFixed(2)}</td></tr>`;
+      }
+    } else {
+      // Si no, usamos el concepto como un único item
+      filasProductos = `
+        <tr>
+          <td style="width: 8mm;">1</td>
+          <td>${txn.concepto}</td>
+          <td class="text-right" style="width: 15mm;">${txn.monto.toFixed(2)}</td>
+        </tr>
+      `;
+    }
+
+    // 5. Reemplazar variables
+    const replacements: Record<string, string> = {
+      '{{logoBase64}}': logoBase64,
+      '{{empresaRuc}}': '20554702270', // RUC por defecto del taller
+      '{{docTitle}}': txn.categoria === 'Venta Online' ? 'COMPROBANTE DE PEDIDO / PROFORMA' : 'BOLETA DE VENTA',
+      '{{txnNumero}}': txn.numero,
+      '{{fecha}}': txn.fecha,
+      '{{hora}}': txn.hora,
+      '{{clienteNombre}}': txn.clienteNombre || (txn.cliente ? `${txn.cliente.nombre} ${txn.cliente.apellidos || ''}` : 'CLIENTE MOSTRADOR'),
+      '{{clienteDoc}}': txn.cliente?.documento || '',
+      '{{metodoPago}}': txn.metodoPago,
+      '{{filasProductos}}': filasProductos,
+      '{{subtotal}}': (txn.monto / 1.18).toFixed(2),
+      '{{igv}}': (txn.monto - (txn.monto / 1.18)).toFixed(2),
+      '{{totalMonto}}': txn.monto.toFixed(2),
+      '{{totalLetras}}': montoALetras(txn.monto)
+    };
+
+    for (const [key, value] of Object.entries(replacements)) {
+      htmlContent = htmlContent.split(key).join(value);
+    }
+
+    // 6. Generar PDF con Puppeteer (formato narrow 80mm)
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    
+    // Configuración del PDF (ancho 80mm, alto dinámico auto)
+    const pdfBuffer = await page.pdf({
+      width: '80mm',
+      printBackground: true,
+      margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
+    });
+
+    await browser.close();
+
+    // 7. Enviar PDF al cliente
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="boleta_${txn.numero}.pdf"`);
+    res.send(Buffer.from(pdfBuffer));
+
+  } catch (error) {
+    console.error('Error al generar boleta PDF:', error);
+    res.status(500).json({ error: 'No se pudo generar el PDF de la boleta.' });
+  }
+};
+
+// ========================
+// HELPERS
+// ========================
+
+function montoALetras(monto: number): string {
+  const unidades = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+  const decenas = ['DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+  const especiales = ['ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+  const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+  const convertir = (n: number): string => {
+    if (n === 0) return 'CERO';
+    if (n === 100) return 'CIEN';
+    
+    let res = '';
+    
+    // Centenas
+    if (n >= 100) {
+      res += centenas[Math.floor(n / 100)] + ' ';
+      n %= 100;
+    }
+    
+    // Decenas
+    if (n >= 10 && n <= 19) {
+      if (n === 10) res += 'DIEZ';
+      else res += especiales[n - 11];
+      n = 0;
+    } else if (n >= 20) {
+      const d = Math.floor(n / 10);
+      res += decenas[d - 1];
+      n %= 10;
+      if (n > 0) {
+        if (d === 2) { // Venti...
+           res = 'VEINTI' + unidades[n];
+           n = 0;
+        } else {
+           res += ' Y ';
+        }
+      }
+    }
+    
+    // Unidades
+    if (n > 0) {
+      res += unidades[n];
+    }
+    
+    return res.trim();
+  };
+
+  const parteEntera = Math.floor(monto);
+  const parteDecimal = Math.round((monto - parteEntera) * 100);
+  
+  let resultado = '';
+  
+  if (parteEntera >= 1000000) {
+     const millones = Math.floor(parteEntera / 1000000);
+     const restoMillon = parteEntera % 1000000;
+     resultado += (millones === 1 ? 'UN MILLON' : convertir(millones) + ' MILLONES') + ' ';
+     if (restoMillon > 0) {
+        if (restoMillon >= 1000) {
+            const miles = Math.floor(restoMillon / 1000);
+            const resto = restoMillon % 1000;
+            resultado += (miles === 1 ? 'MIL' : convertir(miles) + ' MIL') + ' ';
+            resultado += resto > 0 ? convertir(resto) : '';
+        } else {
+            resultado += convertir(restoMillon);
+        }
+     }
+  } else if (parteEntera >= 1000) {
+    const miles = Math.floor(parteEntera / 1000);
+    const resto = parteEntera % 1000;
+    resultado += (miles === 1 ? 'MIL' : convertir(miles) + ' MIL') + ' ';
+    resultado += resto > 0 ? convertir(resto) : '';
+  } else {
+    resultado = convertir(parteEntera);
+  }
+  
+  const centavos = parteDecimal.toString().padStart(2, '0');
+  return `SON: ${resultado.trim()} CON ${centavos}/100 SOLES`;
+}

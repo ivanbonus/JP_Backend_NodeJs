@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const cotizacion_controller_1 = require("../controllers/cotizacion.controller");
+const router = (0, express_1.Router)();
+router.post('/', cotizacion_controller_1.createCotizacion);
+router.get('/', cotizacion_controller_1.getCotizaciones);
+router.put('/:id', cotizacion_controller_1.updateCotizacionStatus);
+router.post('/pdf', cotizacion_controller_1.generarCotizacionPdf);
+router.post('/:id/responder', cotizacion_controller_1.responderCotizacion);
+router.post('/:id/whatsapp', cotizacion_controller_1.responderYGenerarPdfWhatsapp);
+exports.default = router;

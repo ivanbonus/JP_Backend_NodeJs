@@ -81,15 +81,38 @@ export const registrarMovimiento = async (req: Request, res: Response) => {
 export const updateProducto = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { sku, nombre, precio, categoria, marca, stockActual, foto } = req.body;
+    const { sku, nombre, precio, categoria, marca, stockActual, foto, visibleEnWeb } = req.body;
     const actualizado = await prisma.producto.update({
       where: { id: Number(id) },
-      data: { sku, nombre, precio: Number(precio), categoria, marca, stockActual: Number(stockActual), foto }
+      data: { 
+        sku, nombre, precio: Number(precio), categoria, marca, 
+        stockActual: Number(stockActual), foto,
+        ...(visibleEnWeb !== undefined ? { visibleEnWeb: Boolean(visibleEnWeb) } : {})
+      }
     });
     res.json(actualizado);
   } catch (error) {
     console.error('Error al actualizar producto:', error);
     res.status(500).json({ error: 'Error al actualizar producto.' });
+  }
+};
+
+export const toggleVisibleWeb = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const producto = await prisma.producto.findUnique({ where: { id: Number(id) } });
+    if (!producto) {
+      res.status(404).json({ error: 'Producto no encontrado' });
+      return;
+    }
+    const actualizado = await prisma.producto.update({
+      where: { id: Number(id) },
+      data: { visibleEnWeb: !producto.visibleEnWeb }
+    });
+    res.json(actualizado);
+  } catch (error) {
+    console.error('Error al cambiar visibilidad web:', error);
+    res.status(500).json({ error: 'Error al cambiar visibilidad.' });
   }
 };
 

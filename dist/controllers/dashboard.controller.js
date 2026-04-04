@@ -8,7 +8,6 @@ const getDashboardData = async (req, res) => {
         const hoyStr = hoyDate.toLocaleDateString('en-GB'); // DD/MM/YYYY
         const mesActual = hoyDate.getMonth(); // 0-11
         const anioActual = hoyDate.getFullYear();
-        // 1. Obtener todas las transacciones para calcular flujos y distribuciones
         const transacciones = await index_1.prisma.transaccion.findMany({
             include: {
                 cliente: true
@@ -16,6 +15,22 @@ const getDashboardData = async (req, res) => {
             orderBy: {
                 id: 'desc'
             }
+        });
+        const guias = await index_1.prisma.numeroGuia.findMany({
+            include: {
+                cliente: true,
+                vehiculo: true
+            },
+            orderBy: {
+                id: 'desc'
+            }
+        });
+        const trabajadores = await index_1.prisma.trabajador.findMany({
+            where: { estado: true }
+        });
+        const cotizacionesPendientes = await index_1.prisma.cotizacion.findMany({
+            where: { estado: 'PENDIENTE' },
+            orderBy: { fecha: 'desc' }
         });
         let ingresoHoy = 0;
         let egresoHoy = 0;
@@ -28,6 +43,51 @@ const getDashboardData = async (req, res) => {
         const ingresosData = Array(12).fill(0);
         const egresosData = Array(12).fill(0);
         const ultimasTxns = [];
+        const alertasBackend = [];
+        let contadorPagosPorCobrar = 0;
+        let montoPagosPorCobrar = 0;
+        // Generar alertas por Vehículo Listo (Ordenes en estado FINALIZADO)
+        for (const guia of guias) {
+            if (guia.estado === 'FINALIZADO') {
+                alertasBackend.push({
+                    key: `vehiculo-listo-${guia.id}`,
+                    tipo: 'taller',
+                    color: 'navy',
+                    titulo: 'Vehículo listo',
+                    desc: `${guia.vehiculo.marca} ${guia.vehiculo.modelo} — ${guia.vehiculo.placa} completada, avise al cliente ${guia.cliente.nombre}`,
+                    leida: false
+                });
+            }
+        }
+        // Generar alertas por pago de personal a <= 3 días
+        for (const trabajador of trabajadores) {
+            if (trabajador.proximoPago) {
+                const fechaPago = new Date(trabajador.proximoPago); // YYYY-MM-DD
+                const diffTime = Math.abs(fechaPago.getTime() - hoyDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                if (fechaPago >= hoyDate && diffDays <= 3) {
+                    alertasBackend.push({
+                        key: `pago-personal-${trabajador.id}`,
+                        tipo: 'pago',
+                        color: 'orange',
+                        titulo: 'Pago de personal cercano',
+                        desc: `El pago de ${trabajador.nombre} ${trabajador.apellidos} está programado para el ${trabajador.proximoPago}.`,
+                        leida: false
+                    });
+                }
+            }
+        }
+        // Generar alertas por cotizaciones web pendientes
+        for (const ctz of cotizacionesPendientes) {
+            alertasBackend.push({
+                key: `cotizacion-${ctz.id}`,
+                tipo: 'cotizacion', // En el frontend se puede mapear a un icono de la campanita diferente
+                color: 'blue',
+                titulo: 'Nueva Cotización',
+                desc: `${ctz.nombre} solicitó cotizar su ${ctz.vehiculo} (${ctz.servicio}). Teléf: ${ctz.telefono}`,
+                leida: false
+            });
+        }
         for (const txn of transacciones) {
             const isIngreso = txn.tipo === 'INGRESO';
             const isEgreso = txn.tipo === 'EGRESO';
@@ -56,6 +116,8 @@ const getDashboardData = async (req, res) => {
             }
             if (txn.estado === 'PENDIENTE' && isIngreso) {
                 porCobrar++;
+                contadorPagosPorCobrar++;
+                montoPagosPorCobrar += txn.monto;
             }
             // Cálculos mensuales (año actual)
             if (anioTxn === anioActual && txn.estado === 'COMPLETADO') {
@@ -76,6 +138,17 @@ const getDashboardData = async (req, res) => {
                 if (txn.estado === 'COMPLETADO') {
                     if (isIngreso) {
                         ingresoHoy += txn.monto;
+                        // Alerta Venta Registrada (solo las más recientes del día)
+                        if (alertasBackend.filter(a => a.tipo === 'venta').length < 5) {
+                            alertasBackend.push({
+                                key: `venta-${txn.id}`,
+                                tipo: "venta",
+                                color: "green",
+                                titulo: "Venta registrada",
+                                desc: `${txn.concepto} — ${txn.numero} · S/ ${txn.monto} cobrado`,
+                                leida: false
+                            });
+                        }
                         // Distribución métodos de pago (hoy)
                         const metodo = txn.metodoPago === 'TRANSFERENCIA' ? 'Transferencia' :
                             (txn.metodoPago === 'TARJETA' ? 'Tarjeta' :
@@ -84,12 +157,34 @@ const getDashboardData = async (req, res) => {
                     }
                     if (isEgreso) {
                         egresoHoy += txn.monto;
+                        // Alerta Egreso / Pago de personal (solo los más recientes del día)
+                        if (alertasBackend.filter(a => a.tipo === 'pago').length < 3) {
+                            alertasBackend.push({
+                                key: `pago-${txn.id}`,
+                                tipo: "pago",
+                                color: "orange",
+                                titulo: txn.categoria?.toLowerCase().includes('personal') ? "Pago de personal" : "Nuevo egreso",
+                                desc: `${txn.concepto} realizado por S/ ${txn.monto}`,
+                                leida: false
+                            });
+                        }
                         // Distribución categorías de egreso (hoy)
                         const cat = txn.categoria || 'Otros';
                         egresosPorCategoria[cat] = (egresosPorCategoria[cat] || 0) + txn.monto;
                     }
                 }
             }
+        }
+        // Agregar alerta global de por cobrar (agrupada)
+        if (contadorPagosPorCobrar > 0) {
+            alertasBackend.unshift({
+                key: "pendientes-global",
+                tipo: "pendiente",
+                color: "red",
+                titulo: "Pagos por cobrar",
+                desc: `${contadorPagosPorCobrar} pagos pendientes · S/ ${montoPagosPorCobrar} por cobrar`,
+                leida: false
+            });
         }
         // Formatear distribuciones para el frontend
         const distribPago = [];
@@ -145,7 +240,8 @@ const getDashboardData = async (req, res) => {
                 distribPago,
                 distribEgresos
             },
-            ultimasTxns
+            ultimasTxns,
+            alertas: alertasBackend
         });
     }
     catch (error) {

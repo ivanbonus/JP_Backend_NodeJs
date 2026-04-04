@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteProducto = exports.updateProducto = exports.registrarMovimiento = exports.createProducto = exports.getProductos = void 0;
+exports.deleteProducto = exports.toggleVisibleWeb = exports.updateProducto = exports.registrarMovimiento = exports.createProducto = exports.getProductos = void 0;
 const index_1 = require("../index");
 const getProductos = async (req, res) => {
     try {
@@ -79,10 +79,14 @@ exports.registrarMovimiento = registrarMovimiento;
 const updateProducto = async (req, res) => {
     try {
         const { id } = req.params;
-        const { sku, nombre, precio, categoria, marca, stockActual, foto } = req.body;
+        const { sku, nombre, precio, categoria, marca, stockActual, foto, visibleEnWeb } = req.body;
         const actualizado = await index_1.prisma.producto.update({
             where: { id: Number(id) },
-            data: { sku, nombre, precio: Number(precio), categoria, marca, stockActual: Number(stockActual), foto }
+            data: {
+                sku, nombre, precio: Number(precio), categoria, marca,
+                stockActual: Number(stockActual), foto,
+                ...(visibleEnWeb !== undefined ? { visibleEnWeb: Boolean(visibleEnWeb) } : {})
+            }
         });
         res.json(actualizado);
     }
@@ -92,6 +96,26 @@ const updateProducto = async (req, res) => {
     }
 };
 exports.updateProducto = updateProducto;
+const toggleVisibleWeb = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const producto = await index_1.prisma.producto.findUnique({ where: { id: Number(id) } });
+        if (!producto) {
+            res.status(404).json({ error: 'Producto no encontrado' });
+            return;
+        }
+        const actualizado = await index_1.prisma.producto.update({
+            where: { id: Number(id) },
+            data: { visibleEnWeb: !producto.visibleEnWeb }
+        });
+        res.json(actualizado);
+    }
+    catch (error) {
+        console.error('Error al cambiar visibilidad web:', error);
+        res.status(500).json({ error: 'Error al cambiar visibilidad.' });
+    }
+};
+exports.toggleVisibleWeb = toggleVisibleWeb;
 const deleteProducto = async (req, res) => {
     try {
         const { id } = req.params;

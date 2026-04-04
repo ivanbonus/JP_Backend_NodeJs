@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getProductos, createProducto, registrarMovimiento, updateProducto, deleteProducto } from '../controllers/inventario.controller';
+import { getProductos, createProducto, registrarMovimiento, updateProducto, deleteProducto, toggleVisibleWeb } from '../controllers/inventario.controller';
 
 const router = Router();
 
@@ -9,6 +9,7 @@ const router = Router();
 router.get('/', getProductos);
 router.post('/', createProducto);
 router.put('/:id', updateProducto);
+router.patch('/:id/toggle-web', toggleVisibleWeb);
 router.delete('/:id', deleteProducto);
 
 // =======================

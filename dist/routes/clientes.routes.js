@@ -8,4 +8,6 @@ const router = (0, express_1.Router)();
 // =======================
 router.get('/', clientes_controller_1.getClientes);
 router.post('/', clientes_controller_1.createCliente);
+router.put('/:id', clientes_controller_1.updateCliente);
+router.delete('/:id', clientes_controller_1.deleteCliente);
 exports.default = router;

@@ -10,10 +10,12 @@ router.get('/guias', taller_controller_1.getGuias);
 router.post('/guias', taller_controller_1.createGuia);
 router.put('/guias/:id', taller_controller_1.updateGuia);
 router.delete('/guias/:id', taller_controller_1.deleteGuia);
+router.get('/guias/:id/pdf', taller_controller_1.generarPdfGuia);
 // =======================
 // RUTAS VEHICULOS (TALLER)
 // =======================
 router.post('/vehiculos', taller_controller_1.createVehiculo);
+router.delete('/vehiculos/:id', taller_controller_1.deleteVehiculo);
 // =======================
 // RUTAS CITAS
 // =======================

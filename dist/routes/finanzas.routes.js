@@ -10,6 +10,7 @@ router.get('/transacciones', finanzas_controller_1.getTransacciones);
 router.post('/transacciones', finanzas_controller_1.createTransaccion);
 router.put('/transacciones/:id/anular', finanzas_controller_1.anularTransaccion);
 router.put('/transacciones/:id', finanzas_controller_1.updateTransaccion);
+router.post('/transacciones/:id/boleta', finanzas_controller_1.generarBoletaPdf);
 // =======================
 // RUTAS CIERRE CAJA
 // =======================

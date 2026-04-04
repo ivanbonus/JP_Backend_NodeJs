@@ -17,7 +17,7 @@ const getPersonal = async (req, res) => {
 exports.getPersonal = getPersonal;
 const createTrabajador = async (req, res) => {
     try {
-        const { nombre, apellidos, dni, rol, telefono, estado, sueldoBase, porcentajeAfp, porcentajeSeguro, email, direccion, observaciones, fechaIngreso } = req.body;
+        const { nombre, apellidos, dni, rol, telefono, estado, sueldoBase, porcentajeAfp, porcentajeSeguro, email, direccion, observaciones, fechaIngreso, proximoPago } = req.body;
         if (!nombre || !apellidos || !dni) {
             res.status(400).json({ error: 'Faltan campos obligatorios para el trabajador.' });
             return;
@@ -36,7 +36,8 @@ const createTrabajador = async (req, res) => {
                 email,
                 direccion,
                 observaciones,
-                fechaIngreso
+                fechaIngreso,
+                proximoPago
             }
         });
         res.status(201).json(nuevoPersonal);
@@ -54,7 +55,7 @@ exports.createTrabajador = createTrabajador;
 const updateTrabajador = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nombre, apellidos, dni, rol, telefono, estado, sueldoBase, porcentajeAfp, porcentajeSeguro, email, direccion, observaciones, fechaIngreso } = req.body;
+        const { nombre, apellidos, dni, rol, telefono, estado, sueldoBase, porcentajeAfp, porcentajeSeguro, email, direccion, observaciones, fechaIngreso, proximoPago } = req.body;
         const dataToUpdate = {};
         if (nombre !== undefined)
             dataToUpdate.nombre = nombre;
@@ -82,6 +83,8 @@ const updateTrabajador = async (req, res) => {
             dataToUpdate.observaciones = observaciones;
         if (fechaIngreso !== undefined)
             dataToUpdate.fechaIngreso = fechaIngreso;
+        if (proximoPago !== undefined)
+            dataToUpdate.proximoPago = proximoPago;
         const trabajadorActualizado = await index_1.prisma.trabajador.update({
             where: { id: Number(id) },
             data: dataToUpdate
