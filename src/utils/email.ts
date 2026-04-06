@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import { prisma } from '../prisma';
+
 dotenv.config();
 
 /**
@@ -14,9 +16,13 @@ export const enviarCotizacionEmail = async (
     pdfFilename: string
 ) => {
     try {
-        // Configuración del transporter (por defecto Gmail, pero puede adaptarse)
+        const config = await prisma.configuracion.findFirst();
+        const fromName = config?.nombreTaller || "Frenos y Embragues Juan Pablo";
+        const replyToEmail = config?.email || process.env.EMAIL_USER;
+
+        // Configuración del transporter
         const transporter = nodemailer.createTransport({
-            service: 'gmail', // O el host SMTP de tu preferencia
+            service: 'gmail',
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS,
@@ -24,8 +30,9 @@ export const enviarCotizacionEmail = async (
         });
 
         const mailOptions = {
-            from: `"Frenos y Embragues Juan Pablo" <${process.env.EMAIL_USER}>`,
+            from: `"${fromName}" <${process.env.EMAIL_USER}>`,
             to,
+            replyTo: replyToEmail,
             subject,
             html,
             attachments: [

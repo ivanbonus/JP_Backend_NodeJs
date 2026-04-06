@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../index';
+import { prisma } from '../prisma';
 
 export const getPersonal = async (req: Request, res: Response) => {
   try {

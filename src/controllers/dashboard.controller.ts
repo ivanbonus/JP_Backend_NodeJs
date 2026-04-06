@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../index';
+import { prisma } from '../prisma';
 
 export const getDashboardData = async (req: Request, res: Response) => {
   try {
@@ -33,6 +33,16 @@ export const getDashboardData = async (req: Request, res: Response) => {
 
     const cotizacionesPendientes = await prisma.cotizacion.findMany({
         where: { estado: 'PENDIENTE' },
+        orderBy: { fecha: 'desc' }
+    });
+
+    const reclamacionesPendientes = await prisma.reclamacion.findMany({
+        where: { estado: 'PENDIENTE' },
+        orderBy: { fecha: 'desc' }
+    });
+
+    const postulacionesRevision = await prisma.postulacion.findMany({
+        where: { estado: 'REVISION' },
         orderBy: { fecha: 'desc' }
     });
 
@@ -92,10 +102,34 @@ export const getDashboardData = async (req: Request, res: Response) => {
     for (const ctz of cotizacionesPendientes) {
         alertasBackend.push({
              key: `cotizacion-${ctz.id}`,
-             tipo: 'cotizacion', // En el frontend se puede mapear a un icono de la campanita diferente
+             tipo: 'cotizacion',
              color: 'blue',
              titulo: 'Nueva Cotización',
              desc: `${ctz.nombre} solicitó cotizar su ${ctz.vehiculo} (${ctz.servicio}). Teléf: ${ctz.telefono}`,
+             leida: false
+        });
+    }
+
+    // Generar alertas por reclamaciones pendientes
+    for (const rec of reclamacionesPendientes) {
+        alertasBackend.push({
+             key: `reclamacion-${rec.id}`,
+             tipo: 'reclamacion',
+             color: 'orange',
+             titulo: `Nuevo ${rec.tipoReclamacion}`,
+             desc: `${rec.nombres} ${rec.apellidos} registró un ${rec.tipoReclamacion.toLowerCase()} por ${rec.descripcionBien}.`,
+             leida: false
+        });
+    }
+
+    // Generar alertas por postulaciones en revisión
+    for (const pos of postulacionesRevision) {
+        alertasBackend.push({
+             key: `postulacion-${pos.id}`,
+             tipo: 'postulacion',
+             color: 'blue',
+             titulo: 'Nueva Postulación',
+             desc: `${pos.nombres} ${pos.apellidoPaterno} postula para el área de ${pos.areaPostula}.`,
              leida: false
         });
     }
@@ -256,7 +290,8 @@ export const getDashboardData = async (req: Request, res: Response) => {
         margenHoy: ingresoHoy > 0 ? Math.round(((ingresoHoy - egresoHoy) / ingresoHoy) * 100) : 0,
         ingresoMes,
         egresoMes,
-        porCobrar,
+        porCobrar: montoPagosPorCobrar,
+        conteoPorCobrar: contadorPagosPorCobrar,
         vehiculosTaller: vehiculosEnTallerCount,
       },
       chartData: {

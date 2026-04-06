@@ -13,7 +13,8 @@ import {
     actualizarEstadoPostulacion,
     getProductosWeb,
     registrarVentaWeb,
-    obtenerVentasWeb
+    obtenerVentasWeb,
+    responderReclamacion
 } from '../controllers/web.controller';
 import { 
     crearCitaWeb, 
@@ -40,6 +41,7 @@ router.delete('/resenas/:id', eliminarResena);
 
 router.get('/reclamaciones', obtenerReclamaciones);
 router.patch('/reclamaciones/:id/estado', actualizarEstadoReclamacion);
+router.post('/reclamaciones/:id/responder', responderReclamacion);
 
 router.get('/postulaciones', obtenerPostulaciones);
 router.patch('/postulaciones/:id/estado', actualizarEstadoPostulacion);

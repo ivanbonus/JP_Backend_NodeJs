@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../index';
+import { prisma } from '../prisma';
 
 export const getConfiguracion = async (req: Request, res: Response) => {
   try {
@@ -39,11 +39,15 @@ export const updateConfiguracion = async (req: Request, res: Response) => {
     if (notifSMS !== undefined) dataToUpdate.notifSMS = Boolean(notifSMS);
     if (notifApp !== undefined) dataToUpdate.notifApp = Boolean(notifApp);
 
-    // Si se intentó cambiar contraseña
-    if (passwordActual && nuevaPassword) {
+    // SECURITY: Password change logic
+    if (nuevaPassword) {
+        if (!passwordActual) {
+            res.status(400).json({ error: 'Debes proporcionar la contraseña actual para cambiarla.' });
+            return;
+        }
         if (passwordActual !== config.password) {
-             res.status(400).json({ error: 'La contraseña actual es incorrecta. No se ha guardado.' });
-             return;
+            res.status(400).json({ error: 'La contraseña actual es incorrecta. No se han guardado los cambios de seguridad.' });
+            return;
         }
         dataToUpdate.password = nuevaPassword;
     }

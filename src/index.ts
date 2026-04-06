@@ -1,14 +1,14 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from './prisma';
 
 dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
 
-export const prisma = new PrismaClient();
+// (Prisma client moved to src/prisma.ts)
 
 // Importar Rutas Principales
 import apiRoutes from './routes/index.routes';

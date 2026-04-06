@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
-import { prisma } from '../index';
+import { prisma } from '../prisma';
 import path from 'path';
 import fs from 'fs';
 import puppeteer from 'puppeteer';
 import { enviarCotizacionEmail } from '../utils/email';
+import { sendEmail } from '../utils/mailer';
 
 export const createCotizacion = async (req: Request, res: Response) => {
   try {
@@ -29,6 +30,35 @@ export const createCotizacion = async (req: Request, res: Response) => {
         mensaje: mensaje || '',
       }
     });
+
+    // NOTIFICACIÓN AL ADMIN
+    try {
+      const config = await prisma.configuracion.findFirst();
+      if (config && config.email) {
+        await sendEmail({
+          to: config.email,
+          subject: 'Nueva Solicitud de Cotización Web - Taller JP',
+          text: `Se ha recibido una nueva solicitud de cotización de ${nombre}.`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #4ade80; border-radius: 8px;">
+              <h2 style="color: #000; margin-top: 0;">Nueva Cotización Recibida</h2>
+              <p>Un cliente ha solicitado una cotización desde la web:</p>
+              <ul style="list-style: none; padding: 0;">
+                <li><strong>Cliente:</strong> ${nombre}</li>
+                <li><strong>Vehículo:</strong> ${vehiculo || 'No especificado'}</li>
+                <li><strong>Servicio:</strong> ${servicio || 'No especificado'}</li>
+                <li><strong>Teléfono:</strong> ${telefono}</li>
+                <li><strong>Email:</strong> ${email || 'No proporcionado'}</li>
+                <li><strong>Mensaje:</strong> ${mensaje || 'Sin mensaje'}</li>
+              </ul>
+              <p>Puedes revisarla y responderla desde el panel de cotizaciones.</p>
+            </div>
+          `
+        });
+      }
+    } catch (err) {
+      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre nueva cotización:', err);
+    }
 
     res.status(201).json(nuevaCotizacion);
   } catch (error) {

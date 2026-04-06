@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { prisma } from '../index'; // Importar Prisma instanciado en el entrypoint
+import { prisma } from '../prisma'; // Importar Prisma instanciado en el entrypoint
 import path from 'path';
 import fs from 'fs';
 import puppeteer from 'puppeteer';
@@ -265,7 +265,7 @@ export const generarPdfGuia = async (req: Request, res: Response) => {
       '{{clienteTelefono}}': guia.cliente?.telefono || '',
       '{{clienteCelular}}': guia.cliente?.telefono || '',
       '{{fecha}}': new Date().toLocaleDateString('es-PE'),
-      '{{vendedorNombre}}': 'Taller Mecánico JP',
+      '{{vendedorNombre}}': 'Frenos y Embragues Juan Pablo',
       '{{moneda}}': 'Soles',
       '{{filasProductos}}': filasProductos,
       '{{formaPago}}': '-',

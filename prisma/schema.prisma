@@ -241,6 +241,19 @@ model CierreCaja {
 }
 
 // ==========================================
+// MÓDULO SEGURIDAD Y USUARIOS
+// ==========================================
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  email     String   @unique
+  password  String?  // Opcional para usuarios de Google
+  googleId  String?  @unique
+  rol       String   @default("USER") // ADMIN, USER
+  fecha     DateTime @default(now())
+}
+
+// ==========================================
 // CONFIGURACIÓN (Taller y Credenciales)
 // ==========================================
 model Configuracion {
@@ -248,7 +261,7 @@ model Configuracion {
   nombreResponsable String   @default("Administrador")
   email             String   @default("admin@tallerjp.com")
   telefono          String   @default("+51 999 888 777")
-  nombreTaller      String   @default("Taller Mecánico JP")
+  nombreTaller      String   @default("Frenos y Embragues Juan Pablo")
   ruc               String   @default("20601234567")
   direccion         String   @default("Av. Los Mecánicos 123, Lima")
   
