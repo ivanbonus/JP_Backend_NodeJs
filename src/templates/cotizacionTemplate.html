@@ -11,6 +11,7 @@
             color: #333;
             margin: 0;
             padding: 40px;
+            text-transform: uppercase;
         }
 
         /* Encabezado Principal */
@@ -309,15 +310,9 @@
                 <div class="data-label">Email</div><div class="data-separator">:</div>
                 <div class="data-value">{{clienteEmail}}</div>
             </div>
-            <div class="data-row" style="display: flex; gap: 20px;">
-                <div style="display: flex; flex:1;">
-                    <div class="data-label">Teléfono</div><div class="data-separator">:</div>
-                    <div class="data-value">{{clienteTelefono}}</div>
-                </div>
-                <div style="display: flex; flex:1;">
-                    <div class="data-label" style="width: 50px;">Celular</div><div class="data-separator">:</div>
-                    <div class="data-value">{{clienteCelular}}</div>
-                </div>
+            <div class="data-row">
+                <div class="data-label">Teléfono</div><div class="data-separator">:</div>
+                <div class="data-value">{{clienteTelefono}}</div>
             </div>
         </div>
 
@@ -326,9 +321,17 @@
                 <div class="data-label">Fecha</div><div class="data-separator">:</div>
                 <div class="data-value">{{fecha}}</div>
             </div>
-            <div class="data-row" style="margin-top: 15px;">
+            <div class="data-row" style="margin-top: 5px;">
                 <div class="data-label">Vendedor</div><div class="data-separator">:</div>
                 <div class="data-value" style="font-weight: bold;">{{vendedorNombre}}</div>
+            </div>
+            <div class="data-row" style="margin-top: 5px;">
+                <div class="data-label">Celular</div><div class="data-separator">:</div>
+                <div class="data-value">{{clienteCelular}}</div>
+            </div>
+            <div class="data-row" style="margin-top: 5px;">
+                <div class="data-label">Moneda</div><div class="data-separator">:</div>
+                <div class="data-value">{{moneda}}</div>
             </div>
         </div>
     </div>
@@ -336,7 +339,6 @@
     <!-- TEXTO INTRODUCTORIO Y MONEDA -->
     <div class="intro-text">
         <div>Por medio de la presente, tenemos a bien hacerles llegar la cotización de precios, por lo siguiente:</div>
-        <div style="font-weight: bold;">Moneda : {{moneda}}</div>
     </div>
 
     <!-- TABLA DE PRODUCTOS -->
