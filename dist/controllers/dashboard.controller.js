@@ -1,14 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardData = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const getDashboardData = async (req, res) => {
     try {
         const hoyDate = new Date();
         const hoyStr = hoyDate.toLocaleDateString('en-GB'); // DD/MM/YYYY
         const mesActual = hoyDate.getMonth(); // 0-11
         const anioActual = hoyDate.getFullYear();
-        const transacciones = await index_1.prisma.transaccion.findMany({
+        const transacciones = await prisma_1.prisma.transaccion.findMany({
             include: {
                 cliente: true
             },
@@ -16,7 +16,7 @@ const getDashboardData = async (req, res) => {
                 id: 'desc'
             }
         });
-        const guias = await index_1.prisma.numeroGuia.findMany({
+        const guias = await prisma_1.prisma.numeroGuia.findMany({
             include: {
                 cliente: true,
                 vehiculo: true
@@ -25,11 +25,19 @@ const getDashboardData = async (req, res) => {
                 id: 'desc'
             }
         });
-        const trabajadores = await index_1.prisma.trabajador.findMany({
+        const trabajadores = await prisma_1.prisma.trabajador.findMany({
             where: { estado: true }
         });
-        const cotizacionesPendientes = await index_1.prisma.cotizacion.findMany({
+        const cotizacionesPendientes = await prisma_1.prisma.cotizacion.findMany({
             where: { estado: 'PENDIENTE' },
+            orderBy: { fecha: 'desc' }
+        });
+        const reclamacionesPendientes = await prisma_1.prisma.reclamacion.findMany({
+            where: { estado: 'PENDIENTE' },
+            orderBy: { fecha: 'desc' }
+        });
+        const postulacionesRevision = await prisma_1.prisma.postulacion.findMany({
+            where: { estado: 'REVISION' },
             orderBy: { fecha: 'desc' }
         });
         let ingresoHoy = 0;
@@ -81,10 +89,32 @@ const getDashboardData = async (req, res) => {
         for (const ctz of cotizacionesPendientes) {
             alertasBackend.push({
                 key: `cotizacion-${ctz.id}`,
-                tipo: 'cotizacion', // En el frontend se puede mapear a un icono de la campanita diferente
+                tipo: 'cotizacion',
                 color: 'blue',
                 titulo: 'Nueva Cotización',
                 desc: `${ctz.nombre} solicitó cotizar su ${ctz.vehiculo} (${ctz.servicio}). Teléf: ${ctz.telefono}`,
+                leida: false
+            });
+        }
+        // Generar alertas por reclamaciones pendientes
+        for (const rec of reclamacionesPendientes) {
+            alertasBackend.push({
+                key: `reclamacion-${rec.id}`,
+                tipo: 'reclamacion',
+                color: 'orange',
+                titulo: `Nuevo ${rec.tipoReclamacion}`,
+                desc: `${rec.nombres} ${rec.apellidos} registró un ${rec.tipoReclamacion.toLowerCase()} por ${rec.descripcionBien}.`,
+                leida: false
+            });
+        }
+        // Generar alertas por postulaciones en revisión
+        for (const pos of postulacionesRevision) {
+            alertasBackend.push({
+                key: `postulacion-${pos.id}`,
+                tipo: 'postulacion',
+                color: 'blue',
+                titulo: 'Nueva Postulación',
+                desc: `${pos.nombres} ${pos.apellidoPaterno} postula para el área de ${pos.areaPostula}.`,
                 leida: false
             });
         }
@@ -216,7 +246,7 @@ const getDashboardData = async (req, res) => {
         if (distribEgresos.length === 0) {
             distribEgresos.push({ label: "Compra repuestos", pct: 0, color: "#ef4444" }, { label: "Servicios", pct: 0, color: "#f97316" }, { label: "Personal", pct: 0, color: "#eab308" }, { label: "Otros", pct: 0, color: "#94a3b8" });
         }
-        const vehiculosEnTallerCount = await index_1.prisma.numeroGuia.count({
+        const vehiculosEnTallerCount = await prisma_1.prisma.numeroGuia.count({
             where: {
                 estado: 'EN_PROCESO'
             }
@@ -229,7 +259,8 @@ const getDashboardData = async (req, res) => {
                 margenHoy: ingresoHoy > 0 ? Math.round(((ingresoHoy - egresoHoy) / ingresoHoy) * 100) : 0,
                 ingresoMes,
                 egresoMes,
-                porCobrar,
+                porCobrar: montoPagosPorCobrar,
+                conteoPorCobrar: contadorPagosPorCobrar,
                 vehiculosTaller: vehiculosEnTallerCount,
             },
             chartData: {

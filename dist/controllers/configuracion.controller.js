@@ -1,12 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateConfiguracion = exports.getConfiguracion = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const getConfiguracion = async (req, res) => {
     try {
-        let config = await index_1.prisma.configuracion.findFirst();
+        let config = await prisma_1.prisma.configuracion.findFirst();
         if (!config) {
-            config = await index_1.prisma.configuracion.create({ data: {} });
+            config = await prisma_1.prisma.configuracion.create({ data: {} });
         }
         res.json(config);
     }
@@ -19,9 +19,9 @@ exports.getConfiguracion = getConfiguracion;
 const updateConfiguracion = async (req, res) => {
     try {
         const { nombreResponsable, email, telefono, nombreTaller, ruc, direccion, passwordActual, nuevaPassword, notifEmail, notifSMS, notifApp } = req.body;
-        let config = await index_1.prisma.configuracion.findFirst();
+        let config = await prisma_1.prisma.configuracion.findFirst();
         if (!config) {
-            config = await index_1.prisma.configuracion.create({ data: {} });
+            config = await prisma_1.prisma.configuracion.create({ data: {} });
         }
         const dataToUpdate = {};
         if (nombreResponsable !== undefined)
@@ -42,15 +42,19 @@ const updateConfiguracion = async (req, res) => {
             dataToUpdate.notifSMS = Boolean(notifSMS);
         if (notifApp !== undefined)
             dataToUpdate.notifApp = Boolean(notifApp);
-        // Si se intentó cambiar contraseña
-        if (passwordActual && nuevaPassword) {
+        // SECURITY: Password change logic
+        if (nuevaPassword) {
+            if (!passwordActual) {
+                res.status(400).json({ error: 'Debes proporcionar la contraseña actual para cambiarla.' });
+                return;
+            }
             if (passwordActual !== config.password) {
-                res.status(400).json({ error: 'La contraseña actual es incorrecta. No se ha guardado.' });
+                res.status(400).json({ error: 'La contraseña actual es incorrecta. No se han guardado los cambios de seguridad.' });
                 return;
             }
             dataToUpdate.password = nuevaPassword;
         }
-        const updatedConfig = await index_1.prisma.configuracion.update({
+        const updatedConfig = await prisma_1.prisma.configuracion.update({
             where: { id: config.id },
             data: dataToUpdate
         });

@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteProducto = exports.toggleVisibleWeb = exports.updateProducto = exports.registrarMovimiento = exports.createProducto = exports.getProductos = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const getProductos = async (req, res) => {
     try {
-        const productos = await index_1.prisma.producto.findMany({
+        const productos = await prisma_1.prisma.producto.findMany({
             include: {
                 movimientos: {
                     orderBy: { fecha: 'desc' }
@@ -27,7 +27,7 @@ const createProducto = async (req, res) => {
             res.status(400).json({ error: 'Faltan campos obligatorios para el producto.' });
             return;
         }
-        const nuevoProducto = await index_1.prisma.producto.create({
+        const nuevoProducto = await prisma_1.prisma.producto.create({
             data: {
                 sku,
                 nombre,
@@ -50,7 +50,7 @@ const registrarMovimiento = async (req, res) => {
     try {
         const { productoId, tipo, cantidad, motivo, numeroGuiaId } = req.body;
         // Primero, creamos el movimiento
-        const movimiento = await index_1.prisma.movimientoInventario.create({
+        const movimiento = await prisma_1.prisma.movimientoInventario.create({
             data: {
                 productoId: Number(productoId),
                 tipo,
@@ -60,7 +60,7 @@ const registrarMovimiento = async (req, res) => {
             }
         });
         // Luego, actualizamos el stock del producto
-        await index_1.prisma.producto.update({
+        await prisma_1.prisma.producto.update({
             where: { id: Number(productoId) },
             data: {
                 stockActual: {
@@ -80,7 +80,7 @@ const updateProducto = async (req, res) => {
     try {
         const { id } = req.params;
         const { sku, nombre, precio, categoria, marca, stockActual, foto, visibleEnWeb } = req.body;
-        const actualizado = await index_1.prisma.producto.update({
+        const actualizado = await prisma_1.prisma.producto.update({
             where: { id: Number(id) },
             data: {
                 sku, nombre, precio: Number(precio), categoria, marca,
@@ -99,12 +99,12 @@ exports.updateProducto = updateProducto;
 const toggleVisibleWeb = async (req, res) => {
     try {
         const { id } = req.params;
-        const producto = await index_1.prisma.producto.findUnique({ where: { id: Number(id) } });
+        const producto = await prisma_1.prisma.producto.findUnique({ where: { id: Number(id) } });
         if (!producto) {
             res.status(404).json({ error: 'Producto no encontrado' });
             return;
         }
-        const actualizado = await index_1.prisma.producto.update({
+        const actualizado = await prisma_1.prisma.producto.update({
             where: { id: Number(id) },
             data: { visibleEnWeb: !producto.visibleEnWeb }
         });
@@ -120,8 +120,8 @@ const deleteProducto = async (req, res) => {
     try {
         const { id } = req.params;
         // Borramos dependencias primero
-        await index_1.prisma.movimientoInventario.deleteMany({ where: { productoId: Number(id) } });
-        await index_1.prisma.producto.delete({ where: { id: Number(id) } });
+        await prisma_1.prisma.movimientoInventario.deleteMany({ where: { productoId: Number(id) } });
+        await prisma_1.prisma.producto.delete({ where: { id: Number(id) } });
         res.json({ success: true, message: 'Producto eliminado' });
     }
     catch (error) {

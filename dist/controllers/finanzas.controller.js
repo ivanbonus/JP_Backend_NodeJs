@@ -4,14 +4,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generarBoletaPdf = exports.createCierreCaja = exports.getCierresCaja = exports.updateTransaccion = exports.anularTransaccion = exports.createTransaccion = exports.getTransacciones = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const puppeteer_1 = __importDefault(require("puppeteer"));
 // Obtener todas las transacciones (historial)
 const getTransacciones = async (req, res) => {
     try {
-        const transacciones = await index_1.prisma.transaccion.findMany({
+        const transacciones = await prisma_1.prisma.transaccion.findMany({
             orderBy: { id: 'desc' },
             include: { cliente: true, numeroGuia: true }
         });
@@ -31,7 +31,7 @@ const createTransaccion = async (req, res) => {
             res.status(400).json({ error: 'Faltan campos obligatorios para registrar la transacción' });
             return;
         }
-        const nuevaTxn = await index_1.prisma.transaccion.create({
+        const nuevaTxn = await prisma_1.prisma.transaccion.create({
             data: {
                 numero,
                 tipo,
@@ -60,12 +60,12 @@ const anularTransaccion = async (req, res) => {
     try {
         const { id } = req.params;
         // Verificar si existe antes de actualizar
-        const txn = await index_1.prisma.transaccion.findUnique({ where: { id: Number(id) } });
+        const txn = await prisma_1.prisma.transaccion.findUnique({ where: { id: Number(id) } });
         if (!txn) {
             res.status(404).json({ error: 'Transacción no encontrada' });
             return;
         }
-        const updatedTxn = await index_1.prisma.transaccion.update({
+        const updatedTxn = await prisma_1.prisma.transaccion.update({
             where: { id: Number(id) },
             data: { estado: 'ANULADO' }
         });
@@ -83,7 +83,7 @@ const updateTransaccion = async (req, res) => {
         const { id } = req.params;
         const { estado, metodoPago, monto, nota } = req.body;
         // Verificar si existe
-        const txn = await index_1.prisma.transaccion.findUnique({ where: { id: Number(id) } });
+        const txn = await prisma_1.prisma.transaccion.findUnique({ where: { id: Number(id) } });
         if (!txn) {
             res.status(404).json({ error: 'Transacción no encontrada' });
             return;
@@ -106,7 +106,7 @@ const updateTransaccion = async (req, res) => {
             dataToUpdate.fecha = ahora.toLocaleDateString('en-GB'); // DD/MM/YYYY
             dataToUpdate.hora = ahora.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
         }
-        const updatedTxn = await index_1.prisma.transaccion.update({
+        const updatedTxn = await prisma_1.prisma.transaccion.update({
             where: { id: Number(id) },
             data: dataToUpdate
         });
@@ -123,7 +123,7 @@ exports.updateTransaccion = updateTransaccion;
 // ========================
 const getCierresCaja = async (req, res) => {
     try {
-        const cierres = await index_1.prisma.cierreCaja.findMany({
+        const cierres = await prisma_1.prisma.cierreCaja.findMany({
             orderBy: { id: 'desc' },
             include: { transacciones: true }
         });
@@ -138,7 +138,7 @@ exports.getCierresCaja = getCierresCaja;
 const createCierreCaja = async (req, res) => {
     try {
         const { turno, montoInicial, efectivoCaja, totalEfectivo, totalTarjeta, totalTransferencia, totalYape, totalGeneral, diferencia, cerradoPor, observaciones } = req.body;
-        const nuevoCierre = await index_1.prisma.cierreCaja.create({
+        const nuevoCierre = await prisma_1.prisma.cierreCaja.create({
             data: {
                 montoInicial: Number(montoInicial) || 0,
                 montoFinal: Number(efectivoCaja) || 0,
@@ -159,7 +159,7 @@ const createCierreCaja = async (req, res) => {
         });
         // Marcar transacciones de hoy cobradas como vinculadas a este cierre
         const hoy = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
-        await index_1.prisma.transaccion.updateMany({
+        await prisma_1.prisma.transaccion.updateMany({
             where: {
                 fecha: hoy,
                 estado: 'COMPLETADO',
@@ -182,7 +182,7 @@ const generarBoletaPdf = async (req, res) => {
     try {
         const { id } = req.params;
         // 1. Obtener la transacción de la BD
-        const txn = await index_1.prisma.transaccion.findUnique({
+        const txn = await prisma_1.prisma.transaccion.findUnique({
             where: { id: parseInt(id) },
             include: {
                 cliente: true,
@@ -262,7 +262,10 @@ const generarBoletaPdf = async (req, res) => {
             '{{clienteDoc}}': txn.cliente?.documento || '',
             '{{metodoPago}}': txn.metodoPago,
             '{{filasProductos}}': filasProductos,
-            '{{totalMonto}}': txn.monto.toFixed(2)
+            '{{subtotal}}': (txn.monto / 1.18).toFixed(2),
+            '{{igv}}': (txn.monto - (txn.monto / 1.18)).toFixed(2),
+            '{{totalMonto}}': txn.monto.toFixed(2),
+            '{{totalLetras}}': montoALetras(txn.monto)
         };
         for (const [key, value] of Object.entries(replacements)) {
             htmlContent = htmlContent.split(key).join(value);
@@ -292,3 +295,81 @@ const generarBoletaPdf = async (req, res) => {
     }
 };
 exports.generarBoletaPdf = generarBoletaPdf;
+// ========================
+// HELPERS
+// ========================
+function montoALetras(monto) {
+    const unidades = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+    const decenas = ['DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+    const especiales = ['ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+    const centenas = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+    const convertir = (n) => {
+        if (n === 0)
+            return 'CERO';
+        if (n === 100)
+            return 'CIEN';
+        let res = '';
+        // Centenas
+        if (n >= 100) {
+            res += centenas[Math.floor(n / 100)] + ' ';
+            n %= 100;
+        }
+        // Decenas
+        if (n >= 10 && n <= 19) {
+            if (n === 10)
+                res += 'DIEZ';
+            else
+                res += especiales[n - 11];
+            n = 0;
+        }
+        else if (n >= 20) {
+            const d = Math.floor(n / 10);
+            res += decenas[d - 1];
+            n %= 10;
+            if (n > 0) {
+                if (d === 2) { // Venti...
+                    res = 'VEINTI' + unidades[n];
+                    n = 0;
+                }
+                else {
+                    res += ' Y ';
+                }
+            }
+        }
+        // Unidades
+        if (n > 0) {
+            res += unidades[n];
+        }
+        return res.trim();
+    };
+    const parteEntera = Math.floor(monto);
+    const parteDecimal = Math.round((monto - parteEntera) * 100);
+    let resultado = '';
+    if (parteEntera >= 1000000) {
+        const millones = Math.floor(parteEntera / 1000000);
+        const restoMillon = parteEntera % 1000000;
+        resultado += (millones === 1 ? 'UN MILLON' : convertir(millones) + ' MILLONES') + ' ';
+        if (restoMillon > 0) {
+            if (restoMillon >= 1000) {
+                const miles = Math.floor(restoMillon / 1000);
+                const resto = restoMillon % 1000;
+                resultado += (miles === 1 ? 'MIL' : convertir(miles) + ' MIL') + ' ';
+                resultado += resto > 0 ? convertir(resto) : '';
+            }
+            else {
+                resultado += convertir(restoMillon);
+            }
+        }
+    }
+    else if (parteEntera >= 1000) {
+        const miles = Math.floor(parteEntera / 1000);
+        const resto = parteEntera % 1000;
+        resultado += (miles === 1 ? 'MIL' : convertir(miles) + ' MIL') + ' ';
+        resultado += resto > 0 ? convertir(resto) : '';
+    }
+    else {
+        resultado = convertir(parteEntera);
+    }
+    const centavos = parteDecimal.toString().padStart(2, '0');
+    return `SON: ${resultado.trim()} CON ${centavos}/100 SOLES`;
+}

@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteCliente = exports.updateCliente = exports.createCliente = exports.getClientes = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const getClientes = async (req, res) => {
     try {
-        const clientes = await index_1.prisma.cliente.findMany({
+        const clientes = await prisma_1.prisma.cliente.findMany({
             include: {
                 vehiculos: true
             },
@@ -25,7 +25,7 @@ const createCliente = async (req, res) => {
             res.status(400).json({ error: 'El nombre es obligatorio.' });
             return;
         }
-        const nuevoCliente = await index_1.prisma.cliente.create({
+        const nuevoCliente = await prisma_1.prisma.cliente.create({
             data: {
                 nombre, apellidos, documento, email, telefono, direccion,
                 vehiculos: vehiculo && vehiculo.placa && vehiculo.marca && vehiculo.modelo ? {
@@ -54,7 +54,7 @@ const updateCliente = async (req, res) => {
     try {
         const { id } = req.params;
         const { nombre, apellidos, documento, email, telefono, direccion } = req.body;
-        const clienteModificado = await index_1.prisma.cliente.update({
+        const clienteModificado = await prisma_1.prisma.cliente.update({
             where: { id: parseInt(id) },
             data: { nombre, apellidos, documento, email, telefono, direccion }
         });
@@ -71,7 +71,7 @@ const deleteCliente = async (req, res) => {
         const { id } = req.params;
         // Prisma usually cascades or needs manual review. Let's delete the client directly.
         // Ensure relations like vehiculos might prevent deletion if no cascade is set in schema.
-        await index_1.prisma.cliente.delete({
+        await prisma_1.prisma.cliente.delete({
             where: { id: parseInt(id) }
         });
         res.json({ message: 'Cliente eliminado correctamente' });

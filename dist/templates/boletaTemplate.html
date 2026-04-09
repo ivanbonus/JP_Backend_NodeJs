@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Comprobante de Venta</title>
+    <style>
+        @page {
+            size: 80mm auto;
+            margin: 0;
+        }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 72mm;
+            margin: 0 auto;
+            padding: 5mm 0;
+            font-size: 12px;
+            color: #000;
+            line-height: 1.2;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .bold { font-weight: bold; }
+        
+        .header {
+            margin-bottom: 5mm;
+        }
+        .logo {
+            max-width: 40mm;
+            margin-bottom: 2mm;
+        }
+        .company-name {
+            font-size: 14px;
+            text-transform: uppercase;
+            margin: 0;
+        }
+        .company-info {
+            font-size: 10px;
+            margin-bottom: 3mm;
+        }
+        
+        .divider {
+            border-top: 1px dotted #000;
+            margin: 2mm 0;
+        }
+        
+        .doc-title {
+            font-size: 14px;
+            margin: 2mm 0;
+            text-decoration: underline;
+        }
+        
+        .info-table {
+            width: 100%;
+            font-size: 11px;
+            margin-bottom: 2mm;
+        }
+        .info-table td {
+            vertical-align: top;
+            padding: 0.5mm 0;
+        }
+        .label { width: 18mm; }
+
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin-top: 2mm;
+        }
+        .items-table th {
+            border-bottom: 1px solid #000;
+            padding: 1mm 0;
+            text-align: left;
+        }
+        .items-table td {
+            padding: 1.5mm 0;
+        }
+        
+        .totals {
+            width: 100%;
+            margin-top: 3mm;
+        }
+        .total-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 5mm;
+            font-size: 13px;
+        }
+
+        .footer {
+            margin-top: 5mm;
+            font-size: 10px;
+        }
+        .barcode {
+            margin-top: 3mm;
+            font-family: 'Libre Barcode 39', cursive;
+            font-size: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header text-center">
+        <img src="{{logoBase64}}" alt="Logo" class="logo" />
+        <h1 class="company-name bold">FRENOS Y EMBRAGUES "JUAN PABLO"</h1>
+        <div class="company-info">
+            R.U.C. {{empresaRuc}}<br>
+            Av. Los Ciruelos N° 327 - S.J.L.<br>
+            Telf: 946 020 871 / 987 417 892
+        </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="text-center">
+        <div class="doc-title bold">{{docTitle}}</div>
+        <div class="bold">{{txnNumero}}</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <table class="info-table">
+        <tr>
+            <td class="label">FECHA:</td>
+            <td>{{fecha}} {{hora}}</td>
+        </tr>
+        <tr>
+            <td class="label">CLIENTE:</td>
+            <td>{{clienteNombre}}</td>
+        </tr>
+        {{#if clienteDoc}}
+        <tr>
+            <td class="label">RUC/DNI:</td>
+            <td>{{clienteDoc}}</td>
+        </tr>
+        {{/if}}
+        <tr>
+            <td class="label">PAGO:</td>
+            <td>{{metodoPago}}</td>
+        </tr>
+    </table>
+
+    <div class="divider"></div>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width: 8mm;">CANT</th>
+                <th>DESCRIPCIÓN</th>
+                <th class="text-right" style="width: 15mm;">TOTAL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{filasProductos}}
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <div class="totals text-right">
+        <div class="total-row" style="font-size: 11px; margin-bottom: 1mm;">
+            <span>SUBTOTAL:</span>
+            <span>S/ {{subtotal}}</span>
+        </div>
+        <div class="total-row" style="font-size: 11px; margin-bottom: 2mm;">
+            <span>I.G.V. (18%):</span>
+            <span>S/ {{igv}}</span>
+        </div>
+        <div class="total-row bold" style="font-size: 14px; border-top: 1px solid #000; padding-top: 1mm;">
+            <span>TOTAL:</span>
+            <span>S/ {{totalMonto}}</span>
+        </div>
+    </div>
+
+    <div style="margin-top: 4mm; font-size: 10px; font-weight: bold;">
+        {{totalLetras}}
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="footer text-center">
+        <div class="divider"></div>
+        <div style="font-weight: bold; margin-bottom: 1mm;">¡GRACIAS POR SU PREFERENCIA!</div>
+        <div>Vuelva pronto</div>
+        
+        <div style="margin: 4mm 0;">
+            <div style="font-weight: bold; text-decoration: underline; margin-bottom: 1mm;">HORARIO DE ATENCIÓN:</div>
+            <div>Lunes a Sábado: 8:00 AM - 6:00 PM</div>
+            <div>Domingos y Feriados: Previa Cita</div>
+        </div>
+
+        <div style="margin-bottom: 4mm;">
+            <div style="font-weight: bold; margin-bottom: 1mm;">SÍGUENOS EN:</div>
+            <div>Facebook: Frenos y Embragues Juan Pablo</div>
+            <div>WhatsApp: 946 020 871 / 987 417 892</div>
+        </div>
+
+        <div style="border: 1px solid #000; padding: 2mm; margin-bottom: 4mm; font-size: 9px;">
+            <div style="font-weight: bold; margin-bottom: 1mm;">CONDICIONES DE GARANTÍA:</div>
+            <div style="text-align: justify;">La garantía cubre solo defectos de fabricación. No se aceptan devoluciones de dinero después de emitido el comprobante. Los cambios se realizan dentro de las 48 horas con el producto en perfecto estado.</div>
+        </div>
+
+        <div class="barcode">*{{txnNumero}}*</div>
+        <div style="font-size: 8px; margin-top: 2mm;">Representacion impresa de un comprobante de venta.</div>
+        <div style="font-size: 7px; margin-top: 1mm;">Conserve su comprobante para cualquier reclamo.</div>
+    </div>
+</body>
+</html>

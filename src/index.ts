@@ -26,6 +26,21 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 // Inicialización del servidor
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`[server]: Servidor corriendo en http://localhost:${port}`);
 });
+
+// Manejo de errores en el servidor (ej: EADDRINUSE)
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[PDF-ERROR] El puerto ${port} ya está en uso. Por favor, cierra el proceso anterior.`);
+  } else {
+    console.error(`[PDF-ERROR] Error en el servidor:`, error);
+  }
+  process.exit(1);
+});
+
+// Intervalo de mantenimiento para asegurar que el event loop no se vacíe (especialmente en Windows local)
+setInterval(() => {
+    // Keep alive
+}, 60000);

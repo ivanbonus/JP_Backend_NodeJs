@@ -1,0 +1,67 @@
+
+> jp_backend_nodejs@1.0.0 dev
+> nodemon src/index.ts
+
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ÔÜÖ´©Å  write to custom object with { processEnv: myObject }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒñû agentic secret storage: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒöÉ encrypt with Dotenvx: https://dotenvx.com
+[server]: Servidor corriendo en http://localhost:3000
+[32m[nodemon] clean exit - waiting for changes before restart[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ­ƒöÉ prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒøí´©Å auth for agents: https://vestauth.com
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  specify custom .env file path with { path: '/custom/path/.env' }
+[server]: Servidor corriendo en http://localhost:3000
+[PDF-ERROR] El puerto 3000 ya est├í en uso. Por favor, cierra el proceso anterior.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ­ƒöÉ encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜí´©Å secrets for agents: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  specify custom .env file path with { path: '/custom/path/.env' }
+[server]: Servidor corriendo en http://localhost:3000
+[PDF-REQUEST] Generando PDF para WhatsApp/Descarga ID: 12
+[PDF-GENERATOR] Iniciando generaci├│n para #W-00012
+[PDF-REQUEST] Generando PDF para WhatsApp/Descarga ID: 12
+[PDF-GENERATOR] Iniciando generaci├│n para #W-00012
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ­ƒøí´©Å auth for agents: https://vestauth.com
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒøá´©Å  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  override existing env vars with { override: true }
+[server]: Servidor corriendo en http://localhost:3000
+[PDF-ERROR] El puerto 3000 ya est├í en uso. Por favor, cierra el proceso anterior.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ­ƒøí´©Å auth for agents: https://vestauth.com
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  enable debug logging with { debug: true }
+[server]: Servidor corriendo en http://localhost:3000
+[PDF-REQUEST] Generando PDF para WhatsApp/Descarga ID: 12 (Original Design)
+[PDF-GENERATOR] Iniciando generaci├│n con Puppeteer para #W-00012
+[PDF-LOGO] Logo encontrado en: D:\JP\JP_Backend_NodeJS\src\assets\images\logo-jp.png
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[dotenv@17.3.1] injecting env (3) from .env -- tip: ÔÜÖ´©Å  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒñû agentic secret storage: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒøá´©Å  run anywhere with `dotenvx run -- yourcommand`
+[server]: Servidor corriendo en http://localhost:3000
+[PDF-ERROR] El puerto 3000 ya est├í en uso. Por favor, cierra el proceso anterior.
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m

@@ -4,13 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generarPdfGuia = exports.deleteGuia = exports.deleteCita = exports.createCita = exports.getCitas = exports.createVehiculo = exports.updateGuia = exports.createGuia = exports.deleteVehiculo = exports.getGuias = void 0;
-const index_1 = require("../index"); // Importar Prisma instanciado en el entrypoint
+const prisma_1 = require("../prisma"); // Importar Prisma instanciado en el entrypoint
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const puppeteer_1 = __importDefault(require("puppeteer"));
 const getGuias = async (req, res) => {
     try {
-        const guias = await index_1.prisma.numeroGuia.findMany({
+        const guias = await prisma_1.prisma.numeroGuia.findMany({
             include: {
                 cliente: true,
                 vehiculo: true,
@@ -30,7 +30,7 @@ exports.getGuias = getGuias;
 const deleteVehiculo = async (req, res) => {
     try {
         const { id } = req.params;
-        await index_1.prisma.vehiculo.delete({ where: { id: Number(id) } });
+        await prisma_1.prisma.vehiculo.delete({ where: { id: Number(id) } });
         res.json({ message: 'Vehículo eliminado correctamente.' });
     }
     catch (error) {
@@ -47,7 +47,7 @@ const createGuia = async (req, res) => {
             res.status(400).json({ error: 'clienteId y vehiculoId son requeridos.' });
             return;
         }
-        const nuevaGuia = await index_1.prisma.numeroGuia.create({
+        const nuevaGuia = await prisma_1.prisma.numeroGuia.create({
             data: {
                 clienteId,
                 vehiculoId,
@@ -79,7 +79,7 @@ const updateGuia = async (req, res) => {
         const { id } = req.params;
         const { estado, diagnostico, observaciones, tecnicosIds, detalles } = req.body;
         // Actualizamos la guía
-        const guiaActualizada = await index_1.prisma.numeroGuia.update({
+        const guiaActualizada = await prisma_1.prisma.numeroGuia.update({
             where: { id: Number(id) },
             data: {
                 estado,
@@ -115,7 +115,7 @@ const createVehiculo = async (req, res) => {
             res.status(400).json({ error: 'placa, marca, modelo y clienteId son requeridos.' });
             return;
         }
-        const nuevoVehiculo = await index_1.prisma.vehiculo.create({
+        const nuevoVehiculo = await prisma_1.prisma.vehiculo.create({
             data: { placa, marca, modelo, anio: Number(anio) || null, color, clienteId: Number(clienteId) },
             include: { cliente: true }
         });
@@ -129,7 +129,7 @@ const createVehiculo = async (req, res) => {
 exports.createVehiculo = createVehiculo;
 const getCitas = async (req, res) => {
     try {
-        const citas = await index_1.prisma.cita.findMany({
+        const citas = await prisma_1.prisma.cita.findMany({
             include: {
                 cliente: true,
                 vehiculo: true
@@ -151,7 +151,7 @@ const createCita = async (req, res) => {
             res.status(400).json({ error: 'Faltan campos obligatorios para agendar la cita.' });
             return;
         }
-        const nuevaCita = await index_1.prisma.cita.create({
+        const nuevaCita = await prisma_1.prisma.cita.create({
             data: {
                 fechaHora: new Date(fechaHora),
                 motivo,
@@ -171,7 +171,7 @@ exports.createCita = createCita;
 const deleteCita = async (req, res) => {
     try {
         const { id } = req.params;
-        await index_1.prisma.cita.delete({ where: { id: Number(id) } });
+        await prisma_1.prisma.cita.delete({ where: { id: Number(id) } });
         res.json({ message: 'Cita cancelada y eliminada correctamente.' });
     }
     catch (error) {
@@ -183,7 +183,7 @@ exports.deleteCita = deleteCita;
 const deleteGuia = async (req, res) => {
     try {
         const { id } = req.params;
-        await index_1.prisma.numeroGuia.delete({ where: { id: Number(id) } });
+        await prisma_1.prisma.numeroGuia.delete({ where: { id: Number(id) } });
         res.json({ message: 'Guía eliminada correctamente del historial.' });
     }
     catch (error) {
@@ -195,7 +195,7 @@ exports.deleteGuia = deleteGuia;
 const generarPdfGuia = async (req, res) => {
     try {
         const { id } = req.params;
-        const guia = await index_1.prisma.numeroGuia.findUnique({
+        const guia = await prisma_1.prisma.numeroGuia.findUnique({
             where: { id: Number(id) },
             include: {
                 cliente: true,
@@ -258,7 +258,7 @@ const generarPdfGuia = async (req, res) => {
             '{{clienteTelefono}}': guia.cliente?.telefono || '',
             '{{clienteCelular}}': guia.cliente?.telefono || '',
             '{{fecha}}': new Date().toLocaleDateString('es-PE'),
-            '{{vendedorNombre}}': 'Taller Mecánico JP',
+            '{{vendedorNombre}}': 'Frenos y Embragues Juan Pablo',
             '{{moneda}}': 'Soles',
             '{{filasProductos}}': filasProductos,
             '{{formaPago}}': '-',

@@ -14,10 +14,6 @@
             text-transform: uppercase;
         }
 
-        * {
-            box-sizing: border-box;
-        }
-
         /* Encabezado Principal */
         .header {
             display: flex;
@@ -142,7 +138,7 @@
         table.items-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 0px; /* Eliminar margen para que pegue con el footer */
+            margin-bottom: 5px;
         }
 
         table.items-table th {
@@ -177,7 +173,6 @@
         /* Sección Inferior de la tabla (Condiciones y Totales) */
         .table-footer {
             display: flex;
-            width: 100%;
             border: 1px solid #0b2e59;
             border-top: none;
             min-height: 80px;
@@ -185,7 +180,7 @@
         }
 
         .conditions {
-            width: 70%;
+            width: 75%;
             padding: 8px;
             border-right: 1px solid #0b2e59;
             display: flex;
@@ -204,7 +199,7 @@
         }
 
         .totals {
-            width: 30%;
+            width: 25%;
             padding: 8px;
             display: flex;
             justify-content: space-between;

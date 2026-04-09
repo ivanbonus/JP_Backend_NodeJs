@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteTrabajador = exports.updateTrabajador = exports.createTrabajador = exports.getPersonal = void 0;
-const index_1 = require("../index");
+const prisma_1 = require("../prisma");
 const getPersonal = async (req, res) => {
     try {
-        const personal = await index_1.prisma.trabajador.findMany({
+        const personal = await prisma_1.prisma.trabajador.findMany({
             orderBy: { nombre: 'asc' }
         });
         res.json(personal);
@@ -22,7 +22,7 @@ const createTrabajador = async (req, res) => {
             res.status(400).json({ error: 'Faltan campos obligatorios para el trabajador.' });
             return;
         }
-        const nuevoPersonal = await index_1.prisma.trabajador.create({
+        const nuevoPersonal = await prisma_1.prisma.trabajador.create({
             data: {
                 nombre,
                 apellidos,
@@ -85,7 +85,7 @@ const updateTrabajador = async (req, res) => {
             dataToUpdate.fechaIngreso = fechaIngreso;
         if (proximoPago !== undefined)
             dataToUpdate.proximoPago = proximoPago;
-        const trabajadorActualizado = await index_1.prisma.trabajador.update({
+        const trabajadorActualizado = await prisma_1.prisma.trabajador.update({
             where: { id: Number(id) },
             data: dataToUpdate
         });
@@ -101,10 +101,10 @@ const deleteTrabajador = async (req, res) => {
     try {
         const { id } = req.params;
         // Primero, si el trabajador tiene asistencias asociadas hay que eliminarlas
-        await index_1.prisma.asistencia.deleteMany({
+        await prisma_1.prisma.asistencia.deleteMany({
             where: { trabajadorId: Number(id) }
         });
-        await index_1.prisma.trabajador.delete({
+        await prisma_1.prisma.trabajador.delete({
             where: { id: Number(id) }
         });
         res.json({ message: 'Trabajador eliminado exitosamente.' });
