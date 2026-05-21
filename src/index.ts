@@ -25,9 +25,37 @@ app.get('/', (req: Request, res: Response) => {
   res.send('API Taller Backend Funcionado Correctamente');
 });
 
+// Inicialización: crear configuración admin por defecto si no existe
+async function initAdmin() {
+  try {
+    const config = await prisma.configuracion.findFirst();
+    if (!config) {
+      await prisma.configuracion.create({
+        data: {
+          id: 1,
+          nombreResponsable: 'Administrador',
+          email: 'admin@tallerjp.com',
+          telefono: '+51 999 888 777',
+          nombreTaller: 'Frenos y Embragues Juan Pablo',
+          ruc: '20601234567',
+          direccion: 'Av. Los Mecánicos 123, Lima',
+          usuario: 'admin',
+          password: 'admin1511'
+        }
+      });
+      console.log('[INIT] Configuración admin creada exitosamente (admin / admin1511)');
+    } else {
+      console.log('[INIT] Configuración admin ya existe.');
+    }
+  } catch (error) {
+    console.error('[INIT] Error al crear configuración admin:', error);
+  }
+}
+
 // Inicialización del servidor
 const server = app.listen(port, () => {
   console.log(`[server]: Servidor corriendo en http://localhost:${port}`);
+  initAdmin();
 });
 
 // Manejo de errores en el servidor (ej: EADDRINUSE)

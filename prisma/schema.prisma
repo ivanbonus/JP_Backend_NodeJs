@@ -267,7 +267,7 @@ model Configuracion {
   
   // Seguridad
   usuario           String   @default("admin")
-  password          String   @default("admin")
+  password          String   @default("admin1511")
 
   // Notificaciones (Opcional por ahora)
   notifEmail        Boolean  @default(true)
