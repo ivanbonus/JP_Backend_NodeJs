@@ -39,16 +39,24 @@ async function initAdmin() {
           nombreTaller: 'Frenos y Embragues Juan Pablo',
           ruc: '20601234567',
           direccion: 'Av. Los Mecánicos 123, Lima',
-          usuario: 'admin',
-          password: 'admin1511'
+          usuario: 'administrador',
+          password: 'TallerJuanP2026'
         }
       });
-      console.log('[INIT] Configuración admin creada exitosamente (admin / admin1511)');
+      console.log('[INIT] Configuración admin creada exitosamente (administrador / TallerJuanP2026)');
     } else {
-      console.log('[INIT] Configuración admin ya existe.');
+      // Forzar actualización de credenciales para producción/desarrollo si ya existe configuración
+      await prisma.configuracion.update({
+        where: { id: config.id },
+        data: {
+          usuario: 'administrador',
+          password: 'TallerJuanP2026'
+        }
+      });
+      console.log('[INIT] Configuración admin actualizada a (administrador / TallerJuanP2026)');
     }
   } catch (error) {
-    console.error('[INIT] Error al crear configuración admin:', error);
+    console.error('[INIT] Error al crear o actualizar configuración admin:', error);
   }
 }
 

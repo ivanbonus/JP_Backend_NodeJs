@@ -22,7 +22,7 @@ export const login = async (req: Request, res: Response) => {
 
     // 2. Compatibilidad con legacy admin (configuracion)
     let config = await prisma.configuracion.findFirst();
-    if (config && email === config.usuario && password === config.password) {
+    if (config && email && config.usuario && email.toLowerCase() === config.usuario.toLowerCase() && password === config.password) {
         res.json({
              message: 'Login exitoso (Admin)', 
              user: { nombre: config.nombreResponsable, email: config.email, rol: 'ADMIN' } 

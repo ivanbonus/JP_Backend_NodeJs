@@ -266,8 +266,8 @@ model Configuracion {
   direccion         String   @default("Av. Los Mecánicos 123, Lima")
   
   // Seguridad
-  usuario           String   @default("admin")
-  password          String   @default("admin1511")
+  usuario           String   @default("administrador")
+  password          String   @default("TallerJuanP2026")
 
   // Notificaciones (Opcional por ahora)
   notifEmail        Boolean  @default(true)
