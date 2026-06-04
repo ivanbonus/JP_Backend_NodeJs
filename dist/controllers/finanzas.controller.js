@@ -1,13 +1,8 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generarBoletaPdf = exports.createCierreCaja = exports.getCierresCaja = exports.updateTransaccion = exports.anularTransaccion = exports.createTransaccion = exports.getTransacciones = void 0;
 const prisma_1 = require("../prisma");
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
-const puppeteer_1 = __importDefault(require("puppeteer"));
+const pdfKitGenerator_1 = require("../utils/pdfKitGenerator");
 // Obtener todas las transacciones (historial)
 const getTransacciones = async (req, res) => {
     try {
@@ -197,97 +192,58 @@ const generarBoletaPdf = async (req, res) => {
             res.status(404).json({ error: 'Transacción no encontrada' });
             return;
         }
-        // 2. Leer la plantilla HTML
-        const templatePath = path_1.default.join(__dirname, '../templates/boletaTemplate.html');
-        let htmlContent = fs_1.default.readFileSync(templatePath, 'utf8');
-        // 3. Cargar el logo como Base64
-        const logoPath = path_1.default.join(__dirname, '../assets/images/logo-jp.png');
-        let logoBase64 = '';
-        if (fs_1.default.existsSync(logoPath)) {
-            const bitmap = fs_1.default.readFileSync(logoPath);
-            logoBase64 = `data:image/png;base64,${bitmap.toString('base64')}`;
-        }
-        // 4. Generar las filas de productos
-        let filasProductos = '';
+        // 2. Obtener la lista de items
+        let items = [];
         if (txn.numeroGuia && txn.numeroGuia.detalles.length > 0) {
-            // Si tiene una guía asociada con detalles, los usamos
-            txn.numeroGuia.detalles.forEach((det) => {
-                filasProductos += `
-          <tr>
-            <td style="width: 8mm;">${det.cantidad}</td>
-            <td>${det.descripcion}</td>
-            <td class="text-right" style="width: 15mm;">${(det.cantidad * det.precioUnit).toFixed(2)}</td>
-          </tr>
-        `;
-            });
+            items = txn.numeroGuia.detalles.map((det) => ({
+                cantidad: det.cantidad,
+                descripcion: det.descripcion,
+                totalPrice: det.cantidad * det.precioUnit
+            }));
         }
         else if (txn.nota && txn.nota.includes('DETALLES:[')) {
-            // Si es una Venta Web, sacamos los detalles de la nota
             try {
                 const jsonPart = txn.nota.split('DETALLES:')[1];
-                const items = JSON.parse(jsonPart);
-                items.forEach((p) => {
-                    filasProductos += `
-            <tr>
-              <td style="width: 8mm;">${p.cantidad}</td>
-              <td>${p.nombre}</td>
-              <td class="text-right" style="width: 15mm;">${(p.cantidad * p.precio).toFixed(2)}</td>
-            </tr>
-          `;
-                });
+                const parsedItems = JSON.parse(jsonPart);
+                items = parsedItems.map((p) => ({
+                    cantidad: p.cantidad,
+                    descripcion: p.nombre,
+                    totalPrice: p.cantidad * p.precio
+                }));
             }
             catch (e) {
-                filasProductos = `<tr><td style="width: 8mm;">1</td><td>${txn.concepto}</td><td class="text-right">${txn.monto.toFixed(2)}</td></tr>`;
+                items = [{ cantidad: 1, descripcion: txn.concepto, totalPrice: txn.monto }];
             }
         }
         else {
-            // Si no, usamos el concepto como un único item
-            filasProductos = `
-        <tr>
-          <td style="width: 8mm;">1</td>
-          <td>${txn.concepto}</td>
-          <td class="text-right" style="width: 15mm;">${txn.monto.toFixed(2)}</td>
-        </tr>
-      `;
+            items = [{ cantidad: 1, descripcion: txn.concepto, totalPrice: txn.monto }];
         }
-        // 5. Reemplazar variables
-        const replacements = {
-            '{{logoBase64}}': logoBase64,
-            '{{empresaRuc}}': '20554702270', // RUC por defecto del taller
-            '{{docTitle}}': txn.categoria === 'Venta Online' ? 'COMPROBANTE DE PEDIDO / PROFORMA' : 'BOLETA DE VENTA',
-            '{{txnNumero}}': txn.numero,
-            '{{fecha}}': txn.fecha,
-            '{{hora}}': txn.hora,
-            '{{clienteNombre}}': txn.clienteNombre || (txn.cliente ? `${txn.cliente.nombre} ${txn.cliente.apellidos || ''}` : 'CLIENTE MOSTRADOR'),
-            '{{clienteDoc}}': txn.cliente?.documento || '',
-            '{{metodoPago}}': txn.metodoPago,
-            '{{filasProductos}}': filasProductos,
-            '{{subtotal}}': (txn.monto / 1.18).toFixed(2),
-            '{{igv}}': (txn.monto - (txn.monto / 1.18)).toFixed(2),
-            '{{totalMonto}}': txn.monto.toFixed(2),
-            '{{totalLetras}}': montoALetras(txn.monto)
-        };
-        for (const [key, value] of Object.entries(replacements)) {
-            htmlContent = htmlContent.split(key).join(value);
-        }
-        // 6. Generar PDF con Puppeteer (formato narrow 80mm)
-        const browser = await puppeteer_1.default.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        // 3. Variables de cálculo
+        const subtotal = txn.monto / 1.18;
+        const igv = txn.monto - subtotal;
+        const totalLetras = montoALetras(txn.monto);
+        const docTitle = txn.categoria === 'Venta Online' ? 'COMPROBANTE DE PEDIDO / PROFORMA' : 'BOLETA DE VENTA';
+        const clienteNombre = txn.clienteNombre || (txn.cliente ? `${txn.cliente.nombre} ${txn.cliente.apellidos || ''}` : 'CLIENTE MOSTRADOR');
+        // 4. Generar el PDF mediante PDFKit
+        const pdfBuffer = await (0, pdfKitGenerator_1.generarBoletaPdfKit)({
+            items,
+            empresaRuc: '20554702270',
+            docTitle,
+            txnNumero: txn.numero,
+            fecha: txn.fecha,
+            hora: txn.hora,
+            clienteNombre,
+            clienteDoc: txn.cliente?.documento || '',
+            metodoPago: txn.metodoPago,
+            subtotal,
+            igv,
+            totalMonto: txn.monto,
+            totalLetras
         });
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        // Configuración del PDF (ancho 80mm, alto dinámico auto)
-        const pdfBuffer = await page.pdf({
-            width: '80mm',
-            printBackground: true,
-            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
-        });
-        await browser.close();
-        // 7. Enviar PDF al cliente
+        // 5. Enviar el PDF
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="boleta_${txn.numero}.pdf"`);
-        res.send(Buffer.from(pdfBuffer));
+        res.send(pdfBuffer);
     }
     catch (error) {
         console.error('Error al generar boleta PDF:', error);

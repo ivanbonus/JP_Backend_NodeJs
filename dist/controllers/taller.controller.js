@@ -1,13 +1,8 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generarPdfGuia = exports.deleteGuia = exports.deleteCita = exports.createCita = exports.getCitas = exports.createVehiculo = exports.updateGuia = exports.createGuia = exports.deleteVehiculo = exports.getGuias = void 0;
 const prisma_1 = require("../prisma"); // Importar Prisma instanciado en el entrypoint
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
-const puppeteer_1 = __importDefault(require("puppeteer"));
+const pdfKitGenerator_1 = require("../utils/pdfKitGenerator");
 const getGuias = async (req, res) => {
     try {
         const guias = await prisma_1.prisma.numeroGuia.findMany({
@@ -207,91 +202,41 @@ const generarPdfGuia = async (req, res) => {
             res.status(404).json({ error: 'Guía no encontrada.' });
             return;
         }
-        // 1. Leer la plantilla HTML
-        const templatePath = path_1.default.join(__dirname, '../templates/cotizacionTemplate.html');
-        let htmlContent = fs_1.default.readFileSync(templatePath, 'utf8');
-        // Mantenemos el mismo diseño de logo
-        const logoPath = path_1.default.join(__dirname, '../assets/images/logo-jp.png');
-        let logoBase64 = '';
-        if (fs_1.default.existsSync(logoPath)) {
-            const bitmap = fs_1.default.readFileSync(logoPath);
-            logoBase64 = `data:image/png;base64,${bitmap.toString('base64')}`;
-        }
-        // 3. Generar las filas de detalles en HTML
-        let filasProductos = '';
-        let totalImporte = 0;
-        if (guia.detalles && guia.detalles.length > 0) {
-            guia.detalles.forEach((det, index) => {
-                const importe = (det.cantidad || 1) * (det.precioUnit || 0);
-                totalImporte += importe;
-                const isLastRow = index === guia.detalles.length - 1;
-                const rowClass = isLastRow ? 'item-row last-item-row' : 'item-row';
-                filasProductos += `
-          <tr class="${rowClass}">
-              <td> - </td>
-              <td class="center">${det.cantidad}</td>
-              <td>${det.descripcion}</td>
-              <td class="right">${Number(det.precioUnit).toFixed(2)}</td>
-              <td class="right">${Number(importe).toFixed(2)}</td>
-          </tr>
-        `;
-            });
-        }
-        if (!filasProductos) {
-            filasProductos = `
-          <tr class="item-row last-item-row">
-              <td colspan="5" class="center">Sin servicios ingresados</td>
-          </tr>
-        `;
-        }
         const nroGuiaC = `NG-${String(guia.id).padStart(3, '0')}`;
         const vehiculoFullName = guia.vehiculo ? `${guia.vehiculo.marca} ${guia.vehiculo.modelo} (${guia.vehiculo.placa})` : '';
-        const replacements = {
-            '{{logoBase64}}': logoBase64,
-            '{{empresaRuc}}': '20554702270',
-            '{{cotizacionNumero}}': nroGuiaC,
-            '{{clienteNombre}}': guia.cliente && guia.cliente.nombre ? (guia.cliente.nombre + ' ' + (guia.cliente.apellidos || '')).trim() : 'Cliente mostrador',
-            '{{clienteDocumento}}': guia.cliente?.documento || '',
-            '{{clienteAtencion}}': vehiculoFullName,
-            '{{clienteDireccion}}': guia.cliente?.direccion || '',
-            '{{clienteEmail}}': guia.cliente?.email || '',
-            '{{clienteTelefono}}': guia.cliente?.telefono || '',
-            '{{clienteCelular}}': guia.cliente?.telefono || '',
-            '{{fecha}}': new Date().toLocaleDateString('es-PE'),
-            '{{vendedorNombre}}': 'Frenos y Embragues Juan Pablo',
-            '{{moneda}}': 'Soles',
-            '{{filasProductos}}': filasProductos,
-            '{{formaPago}}': '-',
-            '{{plazoEntrega}}': '-',
-            '{{validezCotizacion}}': 'DOCUMENTO DE COBRO - GUÍA',
-            '{{observacion}}': guia.observaciones || 'Servicio realizado en el taller. Garantía por defecto de fábrica.',
-            '{{totalImporte}}': Number(totalImporte).toFixed(2),
-        };
-        // Replace strings (simple multiple replace)
-        const replaceEscaped = htmlContent.replace(/{{([a-zA-Z0-9_]+)}}/g, (match, p1) => {
-            const val = replacements[match];
-            return val !== undefined ? val : match;
+        const productos = (guia.detalles || []).map((det) => ({
+            codigo: '-',
+            cantidad: det.cantidad,
+            descripcion: det.descripcion,
+            precioUnitario: det.precioUnit,
+            importe: det.cantidad * det.precioUnit
+        }));
+        const totalImporte = productos.reduce((sum, p) => sum + p.importe, 0);
+        // Generar PDF mediante PDFKit
+        const pdfBuffer = await (0, pdfKitGenerator_1.generarGuiaPdfKit)({
+            empresaRuc: '20554702270',
+            cotizacionNumero: nroGuiaC,
+            clienteNombre: guia.cliente && guia.cliente.nombre ? (guia.cliente.nombre + ' ' + (guia.cliente.apellidos || '')).trim() : 'Cliente mostrador',
+            clienteDocumento: guia.cliente?.documento || '',
+            clienteAtencion: vehiculoFullName,
+            clienteDireccion: guia.cliente?.direccion || '',
+            clienteEmail: guia.cliente?.email || '',
+            clienteTelefono: guia.cliente?.telefono || '',
+            clienteCelular: guia.cliente?.telefono || '',
+            fecha: new Date().toLocaleDateString('es-PE'),
+            vendedorNombre: 'Frenos y Embragues Juan Pablo',
+            moneda: 'Soles',
+            productos,
+            formaPago: '-',
+            plazoEntrega: '-',
+            diagnostico: guia.diagnostico || '',
+            observacion: guia.observaciones || 'Servicio realizado en el taller. Garantía por defecto de fábrica.',
+            totalImporte
         });
-        // Modify text specific to Cotizacion -> Guia (since we are reusing the web template)
-        let finalHtml = replaceEscaped.replace(/>COTIZACIÓN N°/g, '>PROFORMA / SERVICIO N°');
-        finalHtml = finalHtml.replace(/Cotizamos lo siguiente:/g, 'Trabajo realizado / diagnóstico: ' + (guia.diagnostico || ''));
-        // 5. Generar PDF con Puppeteer
-        const browser = await puppeteer_1.default.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-        await page.setContent(finalHtml, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
-        });
-        await browser.close();
-        // 6. Enviar PDF al cliente
+        // Enviar PDF al cliente
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `inline; filename="Guia_${nroGuiaC}.pdf"`);
-        res.send(Buffer.from(pdfBuffer));
+        res.send(pdfBuffer);
     }
     catch (error) {
         console.error('Error al generar PDF Guia:', error);

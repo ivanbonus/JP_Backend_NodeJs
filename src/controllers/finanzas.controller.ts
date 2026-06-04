@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import path from 'path';
 import fs from 'fs';
-import puppeteer from 'puppeteer';
+import { generarBoletaPdfKit } from '../utils/pdfKitGenerator';
 
 // Obtener todas las transacciones (historial)
 export const getTransacciones = async (req: Request, res: Response) => {
@@ -202,103 +202,58 @@ export const generarBoletaPdf = async (req: Request, res: Response) => {
       return;
     }
 
-    // 2. Leer la plantilla HTML
-    const templatePath = path.join(__dirname, '../templates/boletaTemplate.html');
-    let htmlContent = fs.readFileSync(templatePath, 'utf8');
-
-    // 3. Cargar el logo como Base64
-    const logoPath = path.join(__dirname, '../assets/images/logo-jp.png');
-    let logoBase64 = '';
-    if (fs.existsSync(logoPath)) {
-      const bitmap = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${bitmap.toString('base64')}`;
-    }
-
-    // 4. Generar las filas de productos
-    let filasProductos = '';
+    // 2. Obtener la lista de items
+    let items: Array<{ cantidad: number, descripcion: string, totalPrice: number }> = [];
     if (txn.numeroGuia && txn.numeroGuia.detalles.length > 0) {
-      // Si tiene una guía asociada con detalles, los usamos
-      txn.numeroGuia.detalles.forEach((det: any) => {
-        filasProductos += `
-          <tr>
-            <td style="width: 8mm;">${det.cantidad}</td>
-            <td>${det.descripcion}</td>
-            <td class="text-right" style="width: 15mm;">${(det.cantidad * det.precioUnit).toFixed(2)}</td>
-          </tr>
-        `;
-      });
+      items = txn.numeroGuia.detalles.map((det: any) => ({
+        cantidad: det.cantidad,
+        descripcion: det.descripcion,
+        totalPrice: det.cantidad * det.precioUnit
+      }));
     } else if (txn.nota && txn.nota.includes('DETALLES:[')) {
-      // Si es una Venta Web, sacamos los detalles de la nota
       try {
         const jsonPart = txn.nota.split('DETALLES:')[1];
-        const items = JSON.parse(jsonPart);
-        items.forEach((p: any) => {
-          filasProductos += `
-            <tr>
-              <td style="width: 8mm;">${p.cantidad}</td>
-              <td>${p.nombre}</td>
-              <td class="text-right" style="width: 15mm;">${(p.cantidad * p.precio).toFixed(2)}</td>
-            </tr>
-          `;
-        });
+        const parsedItems = JSON.parse(jsonPart);
+        items = parsedItems.map((p: any) => ({
+          cantidad: p.cantidad,
+          descripcion: p.nombre,
+          totalPrice: p.cantidad * p.precio
+        }));
       } catch (e) {
-        filasProductos = `<tr><td style="width: 8mm;">1</td><td>${txn.concepto}</td><td class="text-right">${txn.monto.toFixed(2)}</td></tr>`;
+        items = [{ cantidad: 1, descripcion: txn.concepto, totalPrice: txn.monto }];
       }
     } else {
-      // Si no, usamos el concepto como un único item
-      filasProductos = `
-        <tr>
-          <td style="width: 8mm;">1</td>
-          <td>${txn.concepto}</td>
-          <td class="text-right" style="width: 15mm;">${txn.monto.toFixed(2)}</td>
-        </tr>
-      `;
+      items = [{ cantidad: 1, descripcion: txn.concepto, totalPrice: txn.monto }];
     }
 
-    // 5. Reemplazar variables
-    const replacements: Record<string, string> = {
-      '{{logoBase64}}': logoBase64,
-      '{{empresaRuc}}': '20554702270', // RUC por defecto del taller
-      '{{docTitle}}': txn.categoria === 'Venta Online' ? 'COMPROBANTE DE PEDIDO / PROFORMA' : 'BOLETA DE VENTA',
-      '{{txnNumero}}': txn.numero,
-      '{{fecha}}': txn.fecha,
-      '{{hora}}': txn.hora,
-      '{{clienteNombre}}': txn.clienteNombre || (txn.cliente ? `${txn.cliente.nombre} ${txn.cliente.apellidos || ''}` : 'CLIENTE MOSTRADOR'),
-      '{{clienteDoc}}': txn.cliente?.documento || '',
-      '{{metodoPago}}': txn.metodoPago,
-      '{{filasProductos}}': filasProductos,
-      '{{subtotal}}': (txn.monto / 1.18).toFixed(2),
-      '{{igv}}': (txn.monto - (txn.monto / 1.18)).toFixed(2),
-      '{{totalMonto}}': txn.monto.toFixed(2),
-      '{{totalLetras}}': montoALetras(txn.monto)
-    };
+    // 3. Variables de cálculo
+    const subtotal = txn.monto / 1.18;
+    const igv = txn.monto - subtotal;
+    const totalLetras = montoALetras(txn.monto);
+    const docTitle = txn.categoria === 'Venta Online' ? 'COMPROBANTE DE PEDIDO / PROFORMA' : 'BOLETA DE VENTA';
+    const clienteNombre = txn.clienteNombre || (txn.cliente ? `${txn.cliente.nombre} ${txn.cliente.apellidos || ''}` : 'CLIENTE MOSTRADOR');
 
-    for (const [key, value] of Object.entries(replacements)) {
-      htmlContent = htmlContent.split(key).join(value);
-    }
-
-    // 6. Generar PDF con Puppeteer (formato narrow 80mm)
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-    
-    // Configuración del PDF (ancho 80mm, alto dinámico auto)
-    const pdfBuffer = await page.pdf({
-      width: '80mm',
-      printBackground: true,
-      margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
+    // 4. Generar el PDF mediante PDFKit
+    const pdfBuffer = await generarBoletaPdfKit({
+      items,
+      empresaRuc: '20554702270',
+      docTitle,
+      txnNumero: txn.numero,
+      fecha: txn.fecha,
+      hora: txn.hora,
+      clienteNombre,
+      clienteDoc: txn.cliente?.documento || '',
+      metodoPago: txn.metodoPago,
+      subtotal,
+      igv,
+      totalMonto: txn.monto,
+      totalLetras
     });
 
-    await browser.close();
-
-    // 7. Enviar PDF al cliente
+    // 5. Enviar el PDF
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="boleta_${txn.numero}.pdf"`);
-    res.send(Buffer.from(pdfBuffer));
+    res.send(pdfBuffer);
 
   } catch (error) {
     console.error('Error al generar boleta PDF:', error);

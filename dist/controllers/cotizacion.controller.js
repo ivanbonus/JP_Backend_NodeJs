@@ -1,13 +1,8 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.responderYGenerarPdfWhatsapp = exports.responderCotizacion = exports.generarCotizacionPdf = exports.updateCotizacionStatus = exports.getCotizaciones = exports.createCotizacion = void 0;
 const prisma_1 = require("../prisma");
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
-const puppeteer_1 = __importDefault(require("puppeteer"));
+const pdfKitGenerator_1 = require("../utils/pdfKitGenerator");
 const email_1 = require("../utils/email");
 const mailer_1 = require("../utils/mailer");
 const formatMoney = (val) => {
@@ -18,131 +13,9 @@ const formatMoney = (val) => {
         return '0.00';
     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
-/**
- * Helper centralizado para generar el PDF de una cotización usando Puppeteer y la plantilla HTML.
- * Esto garantiza que el diseño sea idéntico al original.
- */
 async function generarPdfBuffer(data) {
-    console.log(`[PDF-GENERATOR] Iniciando generación con Puppeteer para #${data.cotizacionNumero}`);
-    // EXTREMADAMENTE IMPORTANTE: Usamos un manejo robusto del logo en Base64
-    let logoBase64 = '';
-    try {
-        // Intentar varias rutas comunes para encontrar el logo
-        const possiblePaths = [
-            path_1.default.join(process.cwd(), 'src/assets/images/logo-jp.png'),
-            path_1.default.join(process.cwd(), 'dist/assets/images/logo-jp.png'),
-            path_1.default.join(__dirname, '../assets/images/logo-jp.png'),
-            path_1.default.join(process.cwd(), 'src/assets/images/logo-jp1.png')
-        ];
-        let foundPath = '';
-        for (const p of possiblePaths) {
-            if (fs_1.default.existsSync(p)) {
-                foundPath = p;
-                break;
-            }
-        }
-        if (foundPath) {
-            const logoData = fs_1.default.readFileSync(foundPath);
-            logoBase64 = `data:image/png;base64,${logoData.toString('base64')}`;
-            console.log(`[PDF-LOGO] Logo cargado con éxito. Tamaño Base64: ${logoBase64.length} caracteres.`);
-        }
-        else {
-            console.warn("[PDF-WARN] No se encontró el logo en ninguna de las rutas intentadas.");
-        }
-    }
-    catch (err) {
-        console.warn("[PDF-WARN] Error cargando el logo:", err);
-    }
-    // Cargar plantilla HTML
-    const templatePath = path_1.default.join(__dirname, '../templates/cotizacionTemplate.html');
-    if (!fs_1.default.existsSync(templatePath)) {
-        throw new Error("No se encontró la plantilla HTML de cotización.");
-    }
-    let html = fs_1.default.readFileSync(templatePath, 'utf8');
-    // Reemplazos de placeholders usando RegExp para mayor seguridad
-    const safeReplace = (content, key, value) => {
-        return content.split(`{{${key}}}`).join(value);
-    };
-    html = safeReplace(html, 'logoBase64', logoBase64);
-    html = safeReplace(html, 'empresaRuc', data.empresaRuc || '20554702270');
-    html = safeReplace(html, 'cotizacionNumero', data.cotizacionNumero || 'W-00000');
-    html = safeReplace(html, 'clienteNombre', (data.clienteNombre || '').toUpperCase());
-    html = safeReplace(html, 'clienteDocumento', data.clienteDocumento || '-');
-    html = safeReplace(html, 'clienteAtencion', data.clienteAtencion || '-');
-    html = safeReplace(html, 'clienteDireccion', data.clienteDireccion || '-');
-    html = safeReplace(html, 'clienteEmail', data.clienteEmail || '-');
-    html = safeReplace(html, 'clienteTelefono', data.clienteTelefono || '-');
-    html = safeReplace(html, 'fecha', data.fecha || new Date().toLocaleDateString('es-PE'));
-    html = safeReplace(html, 'vendedorNombre', (data.vendedorNombre || 'Atención Web').toUpperCase());
-    html = safeReplace(html, 'clienteCelular', data.clienteCelular || data.clienteTelefono || '-');
-    html = safeReplace(html, 'moneda', (data.moneda || 'SOLES').toUpperCase());
-    html = safeReplace(html, 'formaPago', (data.formaPago || 'CONTADO').toUpperCase());
-    html = safeReplace(html, 'plazoEntrega', (data.plazoEntrega || 'INMEDIATO').toUpperCase());
-    html = safeReplace(html, 'validezCotizacion', (data.validezCotizacion || '7 DÍAS').toUpperCase());
-    html = safeReplace(html, 'observacion', data.observacion || 'EL IMPORTE SEÑALADO INCLUYE EXCLUSIVAMENTE LOS TRABAJOS PREVIAMENTE DESCRITOS. CUALQUIER DESPERFECTO ADICIONAL QUE PRESENTE LA UNIDAD SERÁ MATERIA DE EVALUACIÓN Y COTIZACIÓN INDEPENDIENTE');
-    // Reemplazo de productos (Tabla)
-    const mostrarPrecios = data.mostrarPreciosUnitarios !== false;
-    const headersHtml = `
-        <tr>
-            <th style="width: 15%;">CODIGO</th>
-            <th class="center" style="width: 10%;">CANT</th>
-            <th style="width: ${mostrarPrecios ? '45%' : '75%'}; text-align: left;">DESCRIPCION DEL ARTICULO</th>
-            ${mostrarPrecios ? '<th class="right" style="width: 15%;">P. UNIT.</th>' : ''}
-            ${mostrarPrecios ? '<th class="right" style="width: 15%;">IMPORTE</th>' : ''}
-        </tr>
-    `;
-    html = html.replace('{{headersProductos}}', headersHtml);
-    const productos = Array.isArray(data.productos) ? data.productos : [];
-    let filasHtml = '';
-    productos.forEach((prod, idx) => {
-        const isLast = idx === productos.length - 1;
-        filasHtml += `
-            <tr class="item-row ${isLast ? 'last-item-row' : ''}">
-                <td>${prod.codigo || '-'}</td>
-                <td class="center">${prod.cantidad ?? 0}</td>
-                <td>${prod.descripcion || ''}</td>
-                ${mostrarPrecios ? `<td class="right">${formatMoney(prod.precioUnitario)}</td>` : ''}
-                ${mostrarPrecios ? `<td class="right">${formatMoney(prod.importe)}</td>` : ''}
-            </tr>
-        `;
-    });
-    if (filasHtml === '') {
-        filasHtml = '<tr><td colspan="5" class="center">Sin artículos registrados</td></tr>';
-    }
-    html = html.replace('{{filasProductos}}', filasHtml);
-    // Sección Total
-    let totalHtml = '';
-    if (mostrarPrecios && data.mostrarTotal !== false) {
-        totalHtml = `
-            <div class="totals">
-                <div class="total-label">TOTAL</div>
-                <div class="total-value" style="font-size: 16px; font-weight: bold; color: #0b2e59;">S/ ${formatMoney(data.totalImporte || 0)}</div>
-            </div>
-        `;
-    }
-    html = html.replace('{{totalSeccion}}', totalHtml);
-    // Generar PDF con Puppeteer
-    let browser;
-    try {
-        browser = await puppeteer_1.default.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-        const pdf = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
-        });
-        await browser.close();
-        return Buffer.from(pdf);
-    }
-    catch (err) {
-        if (browser)
-            await browser.close();
-        throw err;
-    }
+    console.log(`[PDF-GENERATOR] Iniciando generación con PDFKit para #${data.cotizacionNumero}`);
+    return (0, pdfKitGenerator_1.generarCotizacionPdfKit)(data);
 }
 const createCotizacion = async (req, res) => {
     try {
