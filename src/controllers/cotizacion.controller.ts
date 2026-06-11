@@ -81,7 +81,12 @@ export const updateCotizacionStatus = async (req: Request, res: Response) => {
 export const generarCotizacionPdf = async (req: Request, res: Response) => {
   try {
     console.log('[PDF-REQUEST] Generando PDF Manual / Descarga (Original Design)');
-    const data = { ...req.body, cotizacionNumero: req.body.cotizacionNumero || 'MANUAL', fecha: new Date().toLocaleDateString('es-PE') };
+    const data = {
+      ...req.body,
+      cotizacionNumero: req.body.cotizacionNumero || 'MANUAL',
+      fecha: new Date().toLocaleDateString('es-PE'),
+      placa: req.body.clientePlaca || req.body.placa || ''
+    };
     const pdfBuffer = await generarPdfBuffer(data);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="cotizacion_${data.cotizacionNumero}.pdf"`);
@@ -110,6 +115,7 @@ export const responderCotizacion = async (req: Request, res: Response) => {
       clienteDocumento: req.body.clienteDocumento || cotizacionDB.documento,
       clienteAtencion: req.body.clienteAtencion || cotizacionDB.atencion,
       clienteDireccion: req.body.clienteDireccion || cotizacionDB.direccion,
+      placa: req.body.clientePlaca || req.body.placa || cotizacionDB.placa || '',
       fecha: new Date().toLocaleDateString('es-PE')
     });
 
@@ -164,6 +170,7 @@ export const responderYGenerarPdfWhatsapp = async (req: Request, res: Response) 
       clienteDocumento: req.body.clienteDocumento || cotizacionDB.documento,
       clienteAtencion: req.body.clienteAtencion || cotizacionDB.atencion,
       clienteDireccion: req.body.clienteDireccion || cotizacionDB.direccion,
+      placa: req.body.clientePlaca || req.body.placa || cotizacionDB.placa || '',
       fecha: new Date().toLocaleDateString('es-PE')
     });
 

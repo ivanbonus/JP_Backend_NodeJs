@@ -107,6 +107,7 @@ export function generarCotizacionPdfKit(data: any): Promise<Buffer> {
             drawMetaRowRight('Vendedor', data.vendedorNombre || 'Atención Web', 380, 435, metaY + 12);
             drawMetaRowRight('Celular', data.clienteCelular || data.clienteTelefono || '-', 380, 435, metaY + 24);
             drawMetaRowRight('Moneda', data.moneda || 'SOLES', 380, 435, metaY + 36);
+            drawMetaRowRight('Placa', data.clientePlaca || data.placa || '-', 380, 435, metaY + 48);
 
             // Intro text
             doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);
@@ -326,6 +327,7 @@ export function generarGuiaPdfKit(data: any): Promise<Buffer> {
             drawMetaRowRight('Vendedor', modData.vendedorNombre || 'Frenos y Embragues Juan Pablo', 380, 435, metaY + 12);
             drawMetaRowRight('Celular', modData.clienteCelular || modData.clienteTelefono || '-', 380, 435, metaY + 24);
             drawMetaRowRight('Moneda', modData.moneda || 'SOLES', 380, 435, metaY + 36);
+            drawMetaRowRight('Placa', modData.clientePlaca || modData.placa || '-', 380, 435, metaY + 48);
 
             // Diagnostic / Work completed Intro
             doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);

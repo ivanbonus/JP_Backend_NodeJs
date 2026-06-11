@@ -232,6 +232,7 @@ export const generarPdfGuia = async (req: Request, res: Response) => {
       clienteEmail: guia.cliente?.email || '',
       clienteTelefono: guia.cliente?.telefono || '',
       clienteCelular: guia.cliente?.telefono || '',
+      placa: guia.vehiculo?.placa || '',
       fecha: new Date().toLocaleDateString('es-PE'),
       vendedorNombre: 'Frenos y Embragues Juan Pablo',
       moneda: 'Soles',
