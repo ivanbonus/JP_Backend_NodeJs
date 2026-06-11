@@ -77,18 +77,22 @@ function generarCotizacionPdfKit(data) {
             // --- CLIENT & SELLER METADATA ---
             let metaY = 115;
             doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);
-            // Left Column (Client)
-            const drawMetaRow = (label, value, xLabel, xVal, y) => {
-                doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, xLabel, y);
-                doc.text(':', xLabel + 70, y);
-                doc.fillColor('#333').font('Helvetica').text(String(value || '-').toUpperCase(), xVal, y, { width: 230 });
+            // Left Column (Client) - Dynamic spacing to prevent overlap
+            let currentMetaY = metaY;
+            const drawMetaRow = (label, value) => {
+                doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, 30, currentMetaY);
+                doc.text(':', 100, currentMetaY);
+                const valText = String(value || '-').toUpperCase();
+                doc.fillColor('#333').font('Helvetica').text(valText, 110, currentMetaY, { width: 250 });
+                const valHeight = doc.heightOfString(valText, { width: 250 });
+                currentMetaY += Math.max(valHeight, 10) + 2;
             };
-            drawMetaRow('Señor(es)', data.clienteNombre, 30, 110, metaY);
-            drawMetaRow('R.U.C./D.N.I.', data.clienteDocumento, 30, 110, metaY + 12);
-            drawMetaRow('Atención', data.clienteAtencion, 30, 110, metaY + 24);
-            drawMetaRow('Dirección', data.clienteDireccion, 30, 110, metaY + 36);
-            drawMetaRow('Email', data.clienteEmail, 30, 110, metaY + 48);
-            drawMetaRow('Teléfono', data.clienteTelefono, 30, 110, metaY + 60);
+            drawMetaRow('Señor(es)', data.clienteNombre);
+            drawMetaRow('R.U.C./D.N.I.', data.clienteDocumento);
+            drawMetaRow('Atención', data.clienteAtencion);
+            drawMetaRow('Dirección', data.clienteDireccion);
+            drawMetaRow('Email', data.clienteEmail);
+            drawMetaRow('Teléfono', data.clienteTelefono);
             // Right Column (Seller / Date)
             const drawMetaRowRight = (label, value, xLabel, xVal, y) => {
                 doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, xLabel, y);
@@ -100,11 +104,12 @@ function generarCotizacionPdfKit(data) {
             drawMetaRowRight('Celular', data.clienteCelular || data.clienteTelefono || '-', 380, 435, metaY + 24);
             drawMetaRowRight('Moneda', data.moneda || 'SOLES', 380, 435, metaY + 36);
             drawMetaRowRight('Placa', data.clientePlaca || data.placa || '-', 380, 435, metaY + 48);
-            // Intro text
+            // Intro text - dynamically positioned
+            const introY = Math.max(currentMetaY + 10, 190);
             doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);
-            doc.text('Por medio de la presente, tenemos a bien hacerles llegar la cotización de precios, por lo siguiente:', 30, 190);
+            doc.text('Por medio de la presente, tenemos a bien hacerles llegar la cotización de precios, por lo siguiente:', 30, introY);
             // --- PRODUCTS TABLE ---
-            let tableY = 205;
+            let tableY = introY + 15;
             const colWidths = { codigo: 65, cant: 35, desc: 250, unit: 90, imp: 95 };
             const colPositions = {
                 codigo: 30,
@@ -254,17 +259,23 @@ function generarGuiaPdfKit(data) {
             doc.moveTo(30, 105).lineTo(565, 105).strokeColor('#0b2e59').lineWidth(1).stroke();
             // --- METADATA ---
             let metaY = 115;
-            const drawMetaRow = (label, value, xLabel, xVal, y) => {
-                doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, xLabel, y);
-                doc.text(':', xLabel + 70, y);
-                doc.fillColor('#333').font('Helvetica').text(String(value || '-').toUpperCase(), xVal, y, { width: 230 });
+            doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);
+            // Left Column (Client) - Dynamic spacing to prevent overlap
+            let currentMetaY = metaY;
+            const drawMetaRow = (label, value) => {
+                doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, 30, currentMetaY);
+                doc.text(':', 100, currentMetaY);
+                const valText = String(value || '-').toUpperCase();
+                doc.fillColor('#333').font('Helvetica').text(valText, 110, currentMetaY, { width: 250 });
+                const valHeight = doc.heightOfString(valText, { width: 250 });
+                currentMetaY += Math.max(valHeight, 10) + 2;
             };
-            drawMetaRow('Señor(es)', modData.clienteNombre, 30, 110, metaY);
-            drawMetaRow('R.U.C./D.N.I.', modData.clienteDocumento, 30, 110, metaY + 12);
-            drawMetaRow('Atención', modData.clienteAtencion, 30, 110, metaY + 24);
-            drawMetaRow('Dirección', modData.clienteDireccion, 30, 110, metaY + 36);
-            drawMetaRow('Email', modData.clienteEmail, 30, 110, metaY + 48);
-            drawMetaRow('Teléfono', modData.clienteTelefono, 30, 110, metaY + 60);
+            drawMetaRow('Señor(es)', modData.clienteNombre);
+            drawMetaRow('R.U.C./D.N.I.', modData.clienteDocumento);
+            drawMetaRow('Atención', modData.clienteAtencion);
+            drawMetaRow('Dirección', modData.clienteDireccion);
+            drawMetaRow('Email', modData.clienteEmail);
+            drawMetaRow('Teléfono', modData.clienteTelefono);
             const drawMetaRowRight = (label, value, xLabel, xVal, y) => {
                 doc.fillColor('#0b2e59').font('Helvetica-Bold').text(label, xLabel, y);
                 doc.text(':', xLabel + 45, y);
@@ -276,10 +287,13 @@ function generarGuiaPdfKit(data) {
             drawMetaRowRight('Moneda', modData.moneda || 'SOLES', 380, 435, metaY + 36);
             drawMetaRowRight('Placa', modData.clientePlaca || modData.placa || '-', 380, 435, metaY + 48);
             // Diagnostic / Work completed Intro
+            const introY = Math.max(currentMetaY + 10, 190);
             doc.fillColor('#0b2e59').font('Helvetica-Bold').fontSize(7.5);
-            doc.text(`Trabajo realizado / diagnóstico: ${String(modData.diagnostico || '').toUpperCase()}`, 30, 190, { width: 535 });
+            const diagText = `Trabajo realizado / diagnóstico: ${String(modData.diagnostico || '').toUpperCase()}`;
+            doc.text(diagText, 30, introY, { width: 535 });
+            const diagHeight = doc.heightOfString(diagText, { width: 535 });
             // --- PRODUCTS TABLE ---
-            let tableY = 215;
+            let tableY = introY + Math.max(diagHeight, 10) + 15;
             const colWidths = { codigo: 65, cant: 35, desc: 250, unit: 90, imp: 95 };
             const colPositions = {
                 codigo: 30,
