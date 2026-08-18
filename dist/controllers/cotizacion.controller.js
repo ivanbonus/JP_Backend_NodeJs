@@ -220,7 +220,7 @@ const duplicarCotizacion = async (req, res) => {
         }
         const nueva = await prisma_1.prisma.cotizacion.create({
             data: {
-                nombre: original.nombre + " (Copia)",
+                nombre: original.nombre,
                 documento: original.documento,
                 atencion: original.atencion,
                 direccion: original.direccion,
