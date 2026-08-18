@@ -13,7 +13,13 @@ router.post('/postulaciones', web_controller_1.crearPostulacion);
 router.get('/productos-web', web_controller_1.getProductosWeb);
 router.post('/ventas', web_controller_1.registrarVentaWeb);
 router.post('/citas', webCita_controller_1.crearCitaWeb);
+router.get('/novedades', web_controller_1.obtenerNovedadesWeb);
+router.post('/novedades/:id/like', web_controller_1.darLikeNovedad);
 // Rutas Admin
+router.get('/admin/novedades', web_controller_1.obtenerTodasNovedadesAdmin);
+router.post('/admin/novedades', web_controller_1.crearNovedad);
+router.put('/admin/novedades/:id', web_controller_1.actualizarNovedad);
+router.delete('/admin/novedades/:id', web_controller_1.eliminarNovedad);
 router.get('/resenas', web_controller_1.obtenerTodasResenas);
 router.put('/resenas/:id', web_controller_1.actualizarEstadoResena);
 router.delete('/resenas/:id', web_controller_1.eliminarResena);

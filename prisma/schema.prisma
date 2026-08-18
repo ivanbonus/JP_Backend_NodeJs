@@ -340,3 +340,16 @@ model BloqueoCita {
   motivo      String?
   fechaRegistro DateTime @default(now())
 }
+
+model Novedad {
+  id          Int      @id @default(autoincrement())
+  titulo      String
+  descripcion String   @db.Text
+  etiqueta    String?
+  imagen      String?  @db.Text
+  videoUrl    String?
+  likes       Int      @default(0)
+  estado      String   @default("ACTIVO") // ACTIVO, INACTIVO
+  fecha       DateTime @default(now())
+}
+

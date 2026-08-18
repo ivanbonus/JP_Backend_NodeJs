@@ -14,7 +14,13 @@ import {
     getProductosWeb,
     registrarVentaWeb,
     obtenerVentasWeb,
-    responderReclamacion
+    responderReclamacion,
+    obtenerNovedadesWeb,
+    obtenerTodasNovedadesAdmin,
+    crearNovedad,
+    actualizarNovedad,
+    eliminarNovedad,
+    darLikeNovedad
 } from '../controllers/web.controller';
 import { 
     crearCitaWeb, 
@@ -33,8 +39,15 @@ router.post('/postulaciones', crearPostulacion);
 router.get('/productos-web', getProductosWeb);
 router.post('/ventas', registrarVentaWeb);
 router.post('/citas', crearCitaWeb);
+router.get('/novedades', obtenerNovedadesWeb);
+router.post('/novedades/:id/like', darLikeNovedad);
 
 // Rutas Admin
+router.get('/admin/novedades', obtenerTodasNovedadesAdmin);
+router.post('/admin/novedades', crearNovedad);
+router.put('/admin/novedades/:id', actualizarNovedad);
+router.delete('/admin/novedades/:id', eliminarNovedad);
+
 router.get('/resenas', obtenerTodasResenas);
 router.put('/resenas/:id', actualizarEstadoResena);
 router.delete('/resenas/:id', eliminarResena);

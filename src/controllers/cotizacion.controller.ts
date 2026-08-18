@@ -204,3 +204,44 @@ export const responderYGenerarPdfWhatsapp = async (req: Request, res: Response) 
     res.status(500).json({ error: 'No se pudo generar el PDF con el diseño original.' });
   }
 };
+
+export const duplicarCotizacion = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const original = await prisma.cotizacion.findUnique({
+            where: { id: Number(id) }
+        });
+
+        if (!original) {
+            res.status(404).json({ error: 'Cotizaci�n no encontrada' });
+            return;
+        }
+
+        let datosCotizacionToSave = original.datosCotizacion;
+        if (datosCotizacionToSave === null || datosCotizacionToSave === undefined) {
+            datosCotizacionToSave = null;
+        }
+
+        const nueva = await prisma.cotizacion.create({
+            data: {
+                nombre: original.nombre,
+                documento: original.documento,
+                atencion: original.atencion,
+                direccion: original.direccion,
+                email: original.email,
+                telefono: original.telefono,
+                vehiculo: original.vehiculo,
+                placa: original.placa,
+                servicio: original.servicio,
+                mensaje: original.mensaje,
+                datosCotizacion: datosCotizacionToSave as any,
+                estado: "PENDIENTE"
+            }
+        });
+
+        res.json({ message: 'Cotizaci�n duplicada con �xito', data: nueva });
+    } catch (error) {
+        console.error('Error al duplicar cotizaci�n:', error);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+};

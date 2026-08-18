@@ -15,7 +15,8 @@ const port = process.env.PORT || 3000;
 const index_routes_1 = __importDefault(require("./routes/index.routes"));
 // Middlewares
 app.use((0, cors_1.default)());
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '50mb' }));
+app.use(express_1.default.urlencoded({ limit: '50mb', extended: true }));
 // Main API Router
 app.use('/api', index_routes_1.default);
 // Ruta de prueba

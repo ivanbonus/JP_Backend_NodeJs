@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.responderYGenerarPdfWhatsapp = exports.responderCotizacion = exports.generarCotizacionPdf = exports.updateCotizacionStatus = exports.getCotizaciones = exports.createCotizacion = void 0;
+exports.duplicarCotizacion = exports.responderYGenerarPdfWhatsapp = exports.responderCotizacion = exports.generarCotizacionPdf = exports.updateCotizacionStatus = exports.getCotizaciones = exports.createCotizacion = void 0;
 const prisma_1 = require("../prisma");
 const pdfKitGenerator_1 = require("../utils/pdfKitGenerator");
 const email_1 = require("../utils/email");
@@ -204,3 +204,41 @@ const responderYGenerarPdfWhatsapp = async (req, res) => {
     }
 };
 exports.responderYGenerarPdfWhatsapp = responderYGenerarPdfWhatsapp;
+const duplicarCotizacion = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const original = await prisma_1.prisma.cotizacion.findUnique({
+            where: { id: Number(id) }
+        });
+        if (!original) {
+            res.status(404).json({ error: 'Cotizaci�n no encontrada' });
+            return;
+        }
+        let datosCotizacionToSave = original.datosCotizacion;
+        if (datosCotizacionToSave === null || datosCotizacionToSave === undefined) {
+            datosCotizacionToSave = null;
+        }
+        const nueva = await prisma_1.prisma.cotizacion.create({
+            data: {
+                nombre: original.nombre + " (Copia)",
+                documento: original.documento,
+                atencion: original.atencion,
+                direccion: original.direccion,
+                email: original.email,
+                telefono: original.telefono,
+                vehiculo: original.vehiculo,
+                placa: original.placa,
+                servicio: original.servicio,
+                mensaje: original.mensaje,
+                datosCotizacion: datosCotizacionToSave,
+                estado: "PENDIENTE"
+            }
+        });
+        res.json({ message: 'Cotizaci�n duplicada con �xito', data: nueva });
+    }
+    catch (error) {
+        console.error('Error al duplicar cotizaci�n:', error);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+};
+exports.duplicarCotizacion = duplicarCotizacion;

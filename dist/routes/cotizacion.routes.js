@@ -9,4 +9,5 @@ router.put('/:id', cotizacion_controller_1.updateCotizacionStatus);
 router.post('/pdf', cotizacion_controller_1.generarCotizacionPdf);
 router.post('/:id/responder', cotizacion_controller_1.responderCotizacion);
 router.post('/:id/whatsapp', cotizacion_controller_1.responderYGenerarPdfWhatsapp);
+router.post('/:id/duplicar', cotizacion_controller_1.duplicarCotizacion);
 exports.default = router;

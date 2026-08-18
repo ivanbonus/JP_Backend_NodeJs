@@ -20,7 +20,7 @@ export const crearResena = async (req: Request, res: Response) => {
     const { nombre, email, vehiculo, servicio, calificacion, comentario } = req.body;
 
     if (!nombre || calificacion === undefined || !comentario) {
-        res.status(400).json({ error: 'Nombre, calificación y comentario son obligatorios.' });
+        res.status(400).json({ error: 'Nombre, calificaciÃ³n y comentario son obligatorios.' });
         return;
     }
 
@@ -36,36 +36,36 @@ export const crearResena = async (req: Request, res: Response) => {
       }
     });
 
-    // NOTIFICACIÓN AL ADMIN
+    // NOTIFICACIÃ“N AL ADMIN
     try {
       const config = await prisma.configuracion.findFirst();
       if (config && config.email) {
         await sendEmail({
           to: config.email,
-          subject: 'Nueva Reseña Recibida - Panel Web',
-          text: `Se ha recibido una nueva reseña de ${nombre} (${calificacion} estrellas).`,
+          subject: 'Nueva ReseÃ±a Recibida - Panel Web',
+          text: `Se ha recibido una nueva reseÃ±a de ${nombre} (${calificacion} estrellas).`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-              <h2 style="color: #000; margin-top: 0;">¡Nueva Reseña!</h2>
-              <p>Hola, se ha registrado una nueva opinión en la web:</p>
+              <h2 style="color: #000; margin-top: 0;">Â¡Nueva ReseÃ±a!</h2>
+              <p>Hola, se ha registrado una nueva opiniÃ³n en la web:</p>
               <ul style="list-style: none; padding: 0;">
                 <li><strong>Cliente:</strong> ${nombre}</li>
-                <li><strong>Calificación:</strong> ${calificacion} / 5</li>
+                <li><strong>CalificaciÃ³n:</strong> ${calificacion} / 5</li>
                 <li><strong>Comentario:</strong> ${comentario}</li>
               </ul>
-              <p>Puedes gestionarla desde el panel de administración.</p>
+              <p>Puedes gestionarla desde el panel de administraciÃ³n.</p>
             </div>
           `
         });
       }
     } catch (err) {
-      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre nueva reseña:', err);
+      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre nueva reseÃ±a:', err);
     }
 
     res.status(201).json(nuevaResena);
   } catch (error) {
-    console.error('Error al crear reseña:', error);
-    res.status(500).json({ error: 'Error del servidor al guardar reseña.' });
+    console.error('Error al crear reseÃ±a:', error);
+    res.status(500).json({ error: 'Error del servidor al guardar reseÃ±a.' });
   }
 };
 
@@ -77,8 +77,8 @@ export const obtenerResenasPublicadas = async (req: Request, res: Response) => {
     });
     res.json(resenas);
   } catch (error) {
-    console.error('Error al obtener reseñas publicadas:', error);
-    res.status(500).json({ error: 'Error al cargar reseñas.' });
+    console.error('Error al obtener reseÃ±as publicadas:', error);
+    res.status(500).json({ error: 'Error al cargar reseÃ±as.' });
   }
 };
 
@@ -89,8 +89,8 @@ export const obtenerTodasResenas = async (req: Request, res: Response) => {
     });
     res.json(resenas);
   } catch (error) {
-    console.error('Error al obtener todas las reseñas:', error);
-    res.status(500).json({ error: 'Error al cargar reseñas.' });
+    console.error('Error al obtener todas las reseÃ±as:', error);
+    res.status(500).json({ error: 'Error al cargar reseÃ±as.' });
   }
 };
 
@@ -109,8 +109,8 @@ export const actualizarEstadoResena = async (req: Request, res: Response) => {
 
     res.json(resenaActualizada);
   } catch (error) {
-    console.error('Error al actualizar reseña:', error);
-    res.status(500).json({ error: 'Error del servidor al actualizar reseña.' });
+    console.error('Error al actualizar reseÃ±a:', error);
+    res.status(500).json({ error: 'Error del servidor al actualizar reseÃ±a.' });
   }
 };
 
@@ -118,10 +118,10 @@ export const eliminarResena = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await prisma.resena.delete({ where: { id: parseInt(id as string) } });
-    res.json({ message: 'Reseña eliminada.' });
+    res.json({ message: 'ReseÃ±a eliminada.' });
   } catch (error) {
-    console.error('Error al eliminar reseña:', error);
-    res.status(500).json({ error: 'Error del servidor al eliminar reseña.' });
+    console.error('Error al eliminar reseÃ±a:', error);
+    res.status(500).json({ error: 'Error del servidor al eliminar reseÃ±a.' });
   }
 };
 
@@ -130,37 +130,37 @@ export const crearReclamacion = async (req: Request, res: Response) => {
     const data = req.body;
     const nuevaReclamacion = await prisma.reclamacion.create({ data });
 
-    // NOTIFICACIÓN AL ADMIN
+    // NOTIFICACIÃ“N AL ADMIN
     try {
       const config = await prisma.configuracion.findFirst();
       if (config && config.email) {
         await sendEmail({
           to: config.email,
-          subject: '¡ALERTA! Nueva Reclamación Libro de Reclamaciones',
-          text: `Se ha registrado una nueva reclamación de ${data.nombres} ${data.apellidos}.`,
+          subject: 'Â¡ALERTA! Nueva ReclamaciÃ³n Libro de Reclamaciones',
+          text: `Se ha registrado una nueva reclamaciÃ³n de ${data.nombres} ${data.apellidos}.`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #dc2626; border-radius: 8px;">
-              <h2 style="color: #dc2626; margin-top: 0;">Nueva Reclamación</h2>
+              <h2 style="color: #dc2626; margin-top: 0;">Nueva ReclamaciÃ³n</h2>
               <p>Se ha registrado un nuevo reclamo formal en el Libro de Reclamaciones Virtual:</p>
               <ul style="list-style: none; padding: 0;">
                 <li><strong>Cliente:</strong> ${data.nombres} ${data.apellidos}</li>
                 <li><strong>Documento:</strong> ${data.numeroDocumento}</li>
-                <li><strong>Teléfono:</strong> ${data.telefonoCelular}</li>
+                <li><strong>TelÃ©fono:</strong> ${data.telefonoCelular}</li>
                 <li><strong>Motivo:</strong> ${data.descripcionReclamacion}</li>
               </ul>
-              <p>Por favor, revise el panel de administración para responder a la brevedad conforme a ley.</p>
+              <p>Por favor, revise el panel de administraciÃ³n para responder a la brevedad conforme a ley.</p>
             </div>
           `
         });
       }
     } catch (err) {
-      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre reclamación:', err);
+      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre reclamaciÃ³n:', err);
     }
 
     res.status(201).json(nuevaReclamacion);
   } catch (error) {
-    console.error('Error al crear reclamación:', error);
-    res.status(500).json({ error: 'Error del servidor al guardar reclamación.' });
+    console.error('Error al crear reclamaciÃ³n:', error);
+    res.status(500).json({ error: 'Error del servidor al guardar reclamaciÃ³n.' });
   }
 };
 
@@ -186,8 +186,8 @@ export const actualizarEstadoReclamacion = async (req: Request, res: Response) =
     });
     res.json(reclamacionActualizada);
   } catch (error) {
-    console.error('Error al actualizar reclamación:', error);
-    res.status(500).json({ error: 'Error del servidor al actualizar reclamación.' });
+    console.error('Error al actualizar reclamaciÃ³n:', error);
+    res.status(500).json({ error: 'Error del servidor al actualizar reclamaciÃ³n.' });
   }
 };
 
@@ -201,7 +201,7 @@ export const responderReclamacion = async (req: Request, res: Response) => {
     });
 
     if (!rec) {
-      res.status(404).json({ error: 'Reclamación no encontrada.' });
+      res.status(404).json({ error: 'ReclamaciÃ³n no encontrada.' });
       return;
     }
 
@@ -215,11 +215,11 @@ export const responderReclamacion = async (req: Request, res: Response) => {
         <div style="padding: 40px; background-color: #fff; color: #1a1f2e; line-height: 1.6;">
           <h2 style="color: #000; margin-top: 0;">Estimado(a) ${rec.nombres} ${rec.apellidos},</h2>
           <p style="font-size: 16px;">
-            Le saludamos de <strong>Frenos y Embragues Juan Pablo</strong>. Hacemos referencia a su ${rec.tipoReclamacion.toLowerCase()} registrado el ${new Date(rec.fecha).toLocaleDateString()} bajo el número de documento ${rec.numeroDocumento}.
+            Le saludamos de <strong>Frenos y Embragues Juan Pablo</strong>. Hacemos referencia a su ${rec.tipoReclamacion.toLowerCase()} registrado el ${new Date(rec.fecha).toLocaleDateString()} bajo el nÃºmero de documento ${rec.numeroDocumento}.
           </p>
           
           <div style="background-color: #f8fafc; border-left: 4px solid #fae800; padding: 25px; margin: 25px 0;">
-            <p style="margin-top: 0; font-weight: bold; color: #64748b; font-size: 12px; text-transform: uppercase;">Respuesta de la Administración:</p>
+            <p style="margin-top: 0; font-weight: bold; color: #64748b; font-size: 12px; text-transform: uppercase;">Respuesta de la AdministraciÃ³n:</p>
             <div style="font-size: 16px; color: #1e293b;">
               ${mensaje.replace(/\n/g, '<br>')}
             </div>
@@ -231,12 +231,12 @@ export const responderReclamacion = async (req: Request, res: Response) => {
 
           <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 14px; color: #64748b;">
             Atentamente,<br>
-            <strong>Gerencia de Atención al Cliente</strong><br>
+            <strong>Gerencia de AtenciÃ³n al Cliente</strong><br>
             Frenos y Embragues Juan Pablo
           </div>
         </div>
         <div style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
-          Este documento es una respuesta oficial a su reclamación.
+          Este documento es una respuesta oficial a su reclamaciÃ³n.
         </div>
       </div>
     `;
@@ -261,7 +261,7 @@ export const responderReclamacion = async (req: Request, res: Response) => {
 
     res.json({ message: 'Respuesta enviada y estado actualizado.', data: actualizada });
   } catch (error) {
-    console.error('Error al responder reclamación:', error);
+    console.error('Error al responder reclamaciÃ³n:', error);
     res.status(500).json({ error: 'Error del servidor al procesar la respuesta.' });
   }
 };
@@ -271,37 +271,37 @@ export const crearPostulacion = async (req: Request, res: Response) => {
     const data = req.body;
     const nuevaPostulacion = await prisma.postulacion.create({ data });
 
-    // NOTIFICACIÓN AL ADMIN
+    // NOTIFICACIÃ“N AL ADMIN
     try {
       const config = await prisma.configuracion.findFirst();
       if (config && config.email) {
         await sendEmail({
           to: config.email,
-          subject: 'Nueva Postulación Recibida - Área: ' + data.areaPostula,
-          text: `Se ha recibido una nueva postulación de ${data.nombres} ${data.apellidoPaterno}.`,
+          subject: 'Nueva PostulaciÃ³n Recibida - Ã�rea: ' + data.areaPostula,
+          text: `Se ha recibido una nueva postulaciÃ³n de ${data.nombres} ${data.apellidoPaterno}.`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-              <h2 style="color: #000; margin-top: 0;">Nueva Postulación</h2>
+              <h2 style="color: #000; margin-top: 0;">Nueva PostulaciÃ³n</h2>
               <p>Hay un nuevo interesado en unirse al equipo:</p>
               <ul style="list-style: none; padding: 0;">
                 <li><strong>Candidato:</strong> ${data.nombres} ${data.apellidoPaterno}</li>
-                <li><strong>Área a la que postula:</strong> ${data.areaPostula}</li>
+                <li><strong>Ã�rea a la que postula:</strong> ${data.areaPostula}</li>
                 <li><strong>Email:</strong> ${data.email}</li>
-                <li><strong>Teléfono:</strong> ${data.telefono}</li>
+                <li><strong>TelÃ©fono:</strong> ${data.telefono}</li>
               </ul>
-              <p>Puedes revisar su perfil completo en la pestaña de Postulaciones.</p>
+              <p>Puedes revisar su perfil completo en la pestaÃ±a de Postulaciones.</p>
             </div>
           `
         });
       }
     } catch (err) {
-      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre postulación:', err);
+      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre postulaciÃ³n:', err);
     }
 
     res.status(201).json(nuevaPostulacion);
   } catch (error) {
-    console.error('Error al crear postulación:', error);
-    res.status(500).json({ error: 'Error del servidor al guardar postulación.' });
+    console.error('Error al crear postulaciÃ³n:', error);
+    res.status(500).json({ error: 'Error del servidor al guardar postulaciÃ³n.' });
   }
 };
 
@@ -333,8 +333,8 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
     if (estado === 'CONTACTADO' || estado === 'DESCARTADO') {
         const esAceptado = estado === 'CONTACTADO';
         const subject = esAceptado 
-            ? 'Actualización de tu postulación - Frenos y Embragues Juan Pablo' 
-            : 'Información sobre tu postulación - Frenos y Embragues Juan Pablo';
+            ? 'ActualizaciÃ³n de tu postulaciÃ³n - Frenos y Embragues Juan Pablo' 
+            : 'InformaciÃ³n sobre tu postulaciÃ³n - Frenos y Embragues Juan Pablo';
 
         const html = `
           <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
@@ -345,8 +345,8 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
               <h2 style="color: #000; margin-top: 0;">Hola, ${postulacionActualizada.nombres}</h2>
               <p style="font-size: 16px;">
                 ${esAceptado 
-                  ? 'Nos complace informarte que hemos revisado tu postulación para el área de <strong>' + postulacionActualizada.areaPostula + '</strong> y nos gustaría avanzar con el proceso.' 
-                  : 'Agradecemos mucho tu interés en formar parte de nuestro equipo en <strong>Frenos y Embragues Juan Pablo</strong>.'}
+                  ? 'Nos complace informarte que hemos revisado tu postulaciÃ³n para el Ã¡rea de <strong>' + postulacionActualizada.areaPostula + '</strong> y nos gustarÃ­a avanzar con el proceso.' 
+                  : 'Agradecemos mucho tu interÃ©s en formar parte de nuestro equipo en <strong>Frenos y Embragues Juan Pablo</strong>.'}
               </p>
               
               ${mensajePersonalizado ? `
@@ -357,8 +357,8 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
 
               <p style="font-size: 16px;">
                 ${esAceptado 
-                  ? 'Nuestro equipo se pondrá en contacto contigo pronto para coordinar una entrevista. ¡Estamos emocionados de conocerte!' 
-                  : 'En esta ocasión hemos decidido no avanzar con tu perfil, pero guardaremos tus datos para futuras vacantes que se ajusten a tu experiencia.'}
+                  ? 'Nuestro equipo se pondrÃ¡ en contacto contigo pronto para coordinar una entrevista. Â¡Estamos emocionados de conocerte!' 
+                  : 'En esta ocasiÃ³n hemos decidido no avanzar con tu perfil, pero guardaremos tus datos para futuras vacantes que se ajusten a tu experiencia.'}
               </p>
 
               <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 14px; color: #64748b;">
@@ -368,7 +368,7 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
               </div>
             </div>
             <div style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
-              Este es un correo automático, por favor no respondas directamente a este mensaje.
+              Este es un correo automÃ¡tico, por favor no respondas directamente a este mensaje.
             </div>
           </div>
         `;
@@ -378,7 +378,7 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
                 to: postulacionActualizada.email, 
                 subject, 
                 html,
-                text: esAceptado ? 'Tu postulación ha sido actualizada.' : 'Información sobre tu postulación.'
+                text: esAceptado ? 'Tu postulaciÃ³n ha sido actualizada.' : 'InformaciÃ³n sobre tu postulaciÃ³n.'
             });
             console.log(`[POSTULACION] Email enviado a ${postulacionActualizada.email} con estado ${estado}`);
         } catch (emailError) {
@@ -389,7 +389,7 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
     res.json(postulacionActualizada);
   } catch (error) {
     console.error('Error al actualizar postulacion:', error);
-    res.status(500).json({ error: 'Error al actualizar postulación.' });
+    res.status(500).json({ error: 'Error al actualizar postulaciÃ³n.' });
   }
 };
 
@@ -419,9 +419,9 @@ export const registrarVentaWeb = async (req: Request, res: Response) => {
       const numActual = parseInt(parts[1] || '0');
       nuevoNumero = `WEB-${String(numActual + 1).padStart(3, '0')}`;
     }
-    console.log('[WEB-VENTA] Número asignado:', nuevoNumero);
+    console.log('[WEB-VENTA] NÃºmero asignado:', nuevoNumero);
 
-    // 2. Crear transacción
+    // 2. Crear transacciÃ³n
     const hoy = new Date();
     const fechaStr = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
     const horaStr = `${String(hoy.getHours()).padStart(2, '0')}:${String(hoy.getMinutes()).padStart(2, '0')}`;
@@ -443,15 +443,15 @@ export const registrarVentaWeb = async (req: Request, res: Response) => {
         estado: 'COMPLETADO'
       }
     });
-    console.log('[WEB-VENTA] Transacción creada, ID:', nuevaVenta.id);
+    console.log('[WEB-VENTA] TransacciÃ³n creada, ID:', nuevaVenta.id);
 
-    // NOTIFICACIÓN AL ADMIN
+    // NOTIFICACIÃ“N AL ADMIN
     try {
       const config = await prisma.configuracion.findFirst();
       if (config && config.email) {
         await sendEmail({
           to: config.email,
-          subject: '¡Nueva Venta Online Registrada! #' + nuevoNumero,
+          subject: 'Â¡Nueva Venta Online Registrada! #' + nuevoNumero,
           text: `Se ha registrado una nueva venta online por un valor de S/ ${monto}.`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #22c55e; border-radius: 8px;">
@@ -461,9 +461,9 @@ export const registrarVentaWeb = async (req: Request, res: Response) => {
                 <li><strong>Venta:</strong> #${nuevoNumero}</li>
                 <li><strong>Cliente:</strong> ${clienteNombre}</li>
                 <li><strong>Monto Total:</strong> S/ ${monto}</li>
-                <li><strong>Método:</strong> ${metodoPago}</li>
+                <li><strong>MÃ©todo:</strong> ${metodoPago}</li>
               </ul>
-              <p>Verifica el pedido en la sección de Ventas & Boletas.</p>
+              <p>Verifica el pedido en la secciÃ³n de Ventas & Boletas.</p>
             </div>
           `
         });
@@ -521,3 +521,111 @@ export const obtenerVentasWeb = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error al cargar historial de ventas.' });
     }
 };
+
+// ==========================================
+// MÓDULO NOVEDADES (WEB)
+// ==========================================
+
+export const obtenerNovedadesWeb = async (req: Request, res: Response) => {
+    try {
+        const novedades = await prisma.novedad.findMany({
+            where: { estado: "ACTIVO" },
+            orderBy: { fecha: "desc" }
+        });
+        res.json(novedades);
+    } catch (error) {
+        console.error("Error al obtener novedades:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
+export const obtenerTodasNovedadesAdmin = async (req: Request, res: Response) => {
+    try {
+        const novedades = await prisma.novedad.findMany({
+            orderBy: { fecha: "desc" }
+        });
+        res.json(novedades);
+    } catch (error) {
+        console.error("Error al obtener todas las novedades:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
+export const crearNovedad = async (req: Request, res: Response) => {
+    try {
+        const { titulo, descripcion, etiqueta, imagen, videoUrl, estado } = req.body;
+        if (!titulo || !descripcion) {
+            res.status(400).json({ error: "Título y descripción son obligatorios" });
+            return;
+        }
+
+        const nuevaNovedad = await prisma.novedad.create({
+            data: {
+                titulo,
+                descripcion,
+                etiqueta,
+                imagen,
+                videoUrl,
+                estado: estado || "ACTIVO"
+            }
+        });
+        res.status(201).json(nuevaNovedad);
+    } catch (error) {
+        console.error("Error al crear novedad:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
+export const actualizarNovedad = async (req: Request, res: Response) => {
+    try {
+        const id = parseInt(req.params.id as string);
+        const { titulo, descripcion, etiqueta, imagen, videoUrl, estado } = req.body;
+
+        const novedadActualizada = await prisma.novedad.update({
+            where: { id },
+            data: {
+                titulo,
+                descripcion,
+                etiqueta,
+                imagen,
+                videoUrl,
+                estado
+            }
+        });
+        res.json(novedadActualizada);
+    } catch (error) {
+        console.error("Error al actualizar novedad:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
+export const eliminarNovedad = async (req: Request, res: Response) => {
+    try {
+        const id = parseInt(req.params.id as string);
+        await prisma.novedad.delete({ where: { id } });
+        res.json({ message: "Novedad eliminada exitosamente" });
+    } catch (error) {
+        console.error("Error al eliminar novedad:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
+// ==========================================
+// DAR LIKE A NOVEDAD (WEB)
+// ==========================================
+export const darLikeNovedad = async (req: Request, res: Response) => {
+    try {
+        const id = parseInt(req.params.id as string);
+        const novedad = await prisma.novedad.update({
+            where: { id },
+            data: {
+                likes: { increment: 1 }
+            }
+        });
+        res.json({ message: "Like registrado", likes: novedad.likes });
+    } catch (error) {
+        console.error("Error al dar like a novedad:", error);
+        res.status(500).json({ error: "Error del servidor" });
+    }
+};
+
