@@ -26,27 +26,6 @@ app.get('/', (req: Request, res: Response) => {
   res.send('API Taller Backend Funcionado Correctamente');
 });
 
-// ⚠️ ENDPOINT TEMPORAL DE LIMPIEZA — ELIMINAR DESPUÉS DE USAR
-app.delete('/api/admin/limpiar-finanzas', async (req: Request, res: Response) => {
-  const secret = req.headers['x-secret-key'];
-  if (secret !== 'LIMPIAR-JP-2026') {
-    res.status(403).json({ error: 'No autorizado' });
-    return;
-  }
-  try {
-    const txns = await prisma.transaccion.deleteMany({});
-    const cierres = await prisma.cierreCaja.deleteMany({});
-    res.json({ 
-      ok: true, 
-      transaccionesEliminadas: txns.count,
-      cierresEliminados: cierres.count 
-    });
-  } catch (error) {
-    console.error('Error limpiando:', error);
-    res.status(500).json({ error: 'Error al limpiar' });
-  }
-});
-
 // Inicialización: crear configuración admin por defecto si no existe
 async function initAdmin() {
   try {
