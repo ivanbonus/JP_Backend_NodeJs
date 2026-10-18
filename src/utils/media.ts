@@ -56,28 +56,51 @@ export const valorMediaParaGuardar = (valor: unknown, tipo: TipoMedia): string |
 };
 
 // ==========================================
-// Caché pequeña en memoria (los videos se piden por partes al reproducirse)
+// Lectura por trozos: Node nunca carga el archivo completo en memoria.
+// PostgreSQL extrae y decodifica solo el pedazo de base64 que se necesita.
 // ==========================================
-const LIMITE_CACHE = 40 * 1024 * 1024; // 40 MB como máximo
-const cache = new Map<string, { mime: string; datos: Buffer }>();
-let ocupado = 0;
+const TROZO = 1024 * 1024; // 1 MB por respuesta / por lectura
 
-const guardarEnCache = (clave: string, valor: { mime: string; datos: Buffer }) => {
-    if (valor.datos.length > LIMITE_CACHE / 2) return; // archivos enormes no se guardan
-    while (ocupado + valor.datos.length > LIMITE_CACHE && cache.size) {
-        const [primera, v] = cache.entries().next().value as [string, { datos: Buffer }];
-        cache.delete(primera);
-        ocupado -= v.datos.length;
-    }
-    cache.set(clave, valor);
-    ocupado += valor.datos.length;
+interface MetaMedia { mime: string; coma: number; total: number }
+const metas = new Map<string, MetaMedia>(); // solo metadatos (bytes), nunca contenido
+const MAX_METAS = 500;
+
+/** Valida la huella una vez y guarda tipo, posición de los datos y tamaño real. */
+const obtenerMeta = async (tipo: TipoMedia, id: number, hash: string): Promise<MetaMedia | null> => {
+    const clave = `${tipo}:${id}:${hash}`;
+    const enCache = metas.get(clave);
+    if (enCache) return enCache;
+
+    const { tabla, campo } = TABLAS[tipo];
+    const filas = await prisma.$queryRawUnsafe<{ coma: number; largo: number; fin: string; mime: string }[]>(
+        `SELECT position(',' in ${campo}) AS coma, length(${campo}) AS largo, right(${campo}, 2) AS fin,
+                split_part(substring(${campo} from 6 for 100), ';', 1) AS mime
+         FROM ${tabla} WHERE id = $1::int AND ${campo} LIKE 'data:%' AND md5(${campo}) = $2::text`, id, hash
+    );
+    const f = filas[0];
+    if (!f || !f.coma) return null;
+    const caracteres = Number(f.largo) - Number(f.coma);
+    const relleno = (f.fin.match(/=/g) || []).length;
+    const meta = { mime: f.mime || 'application/octet-stream', coma: Number(f.coma), total: (caracteres / 4) * 3 - relleno };
+
+    if (metas.size >= MAX_METAS) metas.delete(metas.keys().next().value as string);
+    metas.set(clave, meta);
+    return meta;
 };
 
-const decodificarDataUrl = (dataUrl: string) => {
-    const coma = dataUrl.indexOf(',');
-    const cabecera = dataUrl.slice(5, coma); // "image/png;base64"
-    const mime = cabecera.split(';')[0] || 'application/octet-stream';
-    return { mime, datos: Buffer.from(dataUrl.slice(coma + 1), 'base64') };
+/** Lee los bytes [inicio, fin] (inclusive) decodificando en PostgreSQL solo los bloques necesarios. */
+const leerBytes = async (tipo: TipoMedia, id: number, meta: MetaMedia, inicio: number, fin: number): Promise<Buffer> => {
+    const { tabla, campo } = TABLAS[tipo];
+    const bloqueIni = Math.floor(inicio / 3);
+    const bloqueFin = Math.floor(fin / 3);
+    const desde = meta.coma + 1 + bloqueIni * 4; // posición 1-based del primer carácter base64
+    const cantidad = (bloqueFin - bloqueIni + 1) * 4;
+    const filas = await prisma.$queryRawUnsafe<{ b: Buffer }[]>(
+        `SELECT decode(substring(${campo} from $2::int for $3::int), 'base64') AS b FROM ${tabla} WHERE id = $1::int`, id, desde, cantidad
+    );
+    const datos = Buffer.from(filas[0]?.b ?? []);
+    const desplazamiento = inicio - bloqueIni * 3;
+    return datos.subarray(desplazamiento, desplazamiento + (fin - inicio + 1));
 };
 
 /** GET /api/media/:tipo/:id/:hash — pública, pero solo funciona con la huella exacta del contenido. */
@@ -91,57 +114,61 @@ export const servirMedia = async (req: Request, res: Response) => {
             return;
         }
 
-        const clave = `${tipo}:${id}:${hash}`;
-        let archivo = cache.get(clave);
-        if (!archivo) {
-            const { tabla, campo } = TABLAS[tipo];
-            const filas = await prisma.$queryRawUnsafe<{ valor: string }[]>(
-                `SELECT ${campo} AS valor FROM ${tabla} WHERE id = $1 AND md5(${campo}) = $2`, id, hash
-            );
-            const valor = filas[0]?.valor;
-            if (!valor || !valor.startsWith('data:')) {
-                res.status(404).end();
-                return;
-            }
-            archivo = decodificarDataUrl(valor);
-            guardarEnCache(clave, archivo);
-        }
-
-        const total = archivo.datos.length;
-        res.setHeader('Content-Type', archivo.mime);
-        res.setHeader('Accept-Ranges', 'bytes');
         // El contenido nunca cambia para una misma huella: el navegador puede guardarlo para siempre
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        res.setHeader('ETag', `"${hash}"`);
-
         if (req.headers['if-none-match'] === `"${hash}"`) {
             res.status(304).end();
             return;
         }
 
-        // Pedidos por partes (los videos lo usan para adelantar/retroceder)
+        const meta = await obtenerMeta(tipo, id, hash);
+        if (!meta) {
+            res.status(404).end();
+            return;
+        }
+        const total = meta.total;
+        res.setHeader('Content-Type', meta.mime);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('ETag', `"${hash}"`);
+
+        // Pedidos por partes (los videos lo usan para reproducir y adelantar)
         const rango = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
-        if (rango) {
-            let inicio = rango[1] ? Number(rango[1]) : total - Number(rango[2]);
-            let fin = rango[1] && rango[2] ? Number(rango[2]) : total - 1;
-            if (!rango[1]) fin = total - 1;
-            if (isNaN(inicio) || inicio < 0 || inicio >= total || fin < inicio) {
+        if (rango && (rango[1] || rango[2])) {
+            let inicio: number;
+            let fin: number;
+            if (rango[1]) {
+                inicio = Number(rango[1]);
+                fin = rango[2] ? Number(rango[2]) : total - 1;
+            } else {
+                inicio = Math.max(0, total - Number(rango[2]));
+                fin = total - 1;
+            }
+            if (isNaN(inicio) || inicio >= total || fin < inicio) {
                 res.status(416).setHeader('Content-Range', `bytes */${total}`).end();
                 return;
             }
-            fin = Math.min(fin, total - 1);
+            // Se entrega como máximo un trozo; el navegador pide el siguiente cuando lo necesita
+            fin = Math.min(fin, total - 1, inicio + TROZO - 1);
+            const datos = await leerBytes(tipo, id, meta, inicio, fin);
             res.status(206);
             res.setHeader('Content-Range', `bytes ${inicio}-${fin}/${total}`);
-            res.setHeader('Content-Length', String(fin - inicio + 1));
-            res.end(archivo.datos.subarray(inicio, fin + 1));
+            res.setHeader('Content-Length', String(datos.length));
+            res.end(datos);
             return;
         }
 
+        // Archivo completo: se envía por trozos, sin juntarlo en memoria
         res.setHeader('Content-Length', String(total));
-        res.end(archivo.datos);
+        for (let inicio = 0; inicio < total; inicio += TROZO) {
+            const datos = await leerBytes(tipo, id, meta, inicio, Math.min(inicio + TROZO, total) - 1);
+            if (!res.write(datos)) await new Promise(r => res.once('drain', r));
+            if (res.destroyed) return;
+        }
+        res.end();
     } catch (error) {
         console.error('Error al servir media:', error);
-        res.status(500).end();
+        if (!res.headersSent) res.status(500);
+        res.end();
     }
 };
 

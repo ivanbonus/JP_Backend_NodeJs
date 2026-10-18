@@ -34,6 +34,8 @@ Render → servicio **JP_Backend_NodeJs** → *Environment*:
 $env:DATABASE_URL = "postgresql://...(la de la COPIA)..."
 npx prisma migrate status
 npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+npx prisma migrate resolve --applied 20260315215020_init_produccion
+npx prisma migrate resolve --applied 20260316022630_add_foto_producto
 npx prisma migrate resolve --applied 20261017184812_baseline_sincronizar_db_push
 npx prisma migrate deploy
 npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
@@ -43,8 +45,8 @@ npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel pri
   `password` sin valor por defecto, tablas `SegundoFactor`, `DispositivoVerificacion` y `Auditoria`.
   Si aparece cualquier `DROP` de columnas o tablas existentes, **detente y avisa**.
 - El último `diff` debe estar vacío.
-- Si `migrate status` dice que las dos migraciones de marzo 2026 **no** están aplicadas, márcalas también
-  con `npx prisma migrate resolve --applied <nombre>` antes de seguir.
+- Verificado en el ensayo del 18/10/2026: producción nunca usó migraciones (solo `db push`), por eso se marcan
+  como aplicadas **las tres** primeras (marzo 2026 + baseline) y solo se ejecuta la de la Fase 1.
 
 Si el ensayo sale bien, borra la branch `ensayo-fase1` en Neon.
 
@@ -59,6 +61,8 @@ Si el ensayo sale bien, borra la branch `ensayo-fase1` en Neon.
 $env:DATABASE_URL = "postgresql://...(la PRINCIPAL, sin -pooler)..."
 npx prisma migrate status
 npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+npx prisma migrate resolve --applied 20260315215020_init_produccion
+npx prisma migrate resolve --applied 20260316022630_add_foto_producto
 npx prisma migrate resolve --applied 20261017184812_baseline_sincronizar_db_push
 npx prisma migrate deploy
 ```

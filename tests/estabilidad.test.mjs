@@ -95,3 +95,42 @@ test('la dirección de media no expone otros datos ni acepta tipos desconocidos'
     assert.equal((await fetch(`${BASE}/media/usuario/1/${'a'.repeat(32)}`)).status, 404);
     assert.equal((await fetch(`${BASE}/media/producto/abc/${'a'.repeat(32)}`)).status, 404);
 });
+
+test('videos grandes: se entregan por trozos de 1 MB y los bytes son idénticos al original', async () => {
+    // 3 MB con contenido variable (prueba bien la decodificación base64 por bloques)
+    const original = Buffer.from(Array.from({ length: 3 * 1024 * 1024 + 7 }, (_, i) => (i * 31 + (i >> 8)) & 255));
+    const creada = await pedir('POST', '/web/admin/novedades', {
+        token, body: { titulo: 'Publicación', descripcion: ' ', imagen: 'data:video/mp4;base64,' + original.toString('base64'), estado: 'ACTIVO' },
+    });
+    assert.equal(creada.status, 201);
+    const dir = creada.data.imagen;
+
+    // Como un navegador: pide "desde X en adelante" y recibe como máximo 1 MB cada vez
+    const partes = [];
+    let desde = 0;
+    while (desde < original.length) {
+        const r = await fetch(dir, { headers: { Range: `bytes=${desde}-` } });
+        assert.equal(r.status, 206);
+        const b = Buffer.from(await r.arrayBuffer());
+        assert.ok(b.length <= 1024 * 1024, 'cada respuesta trae como máximo 1 MB');
+        partes.push(b);
+        desde += b.length;
+    }
+    assert.ok(Buffer.concat(partes).equals(original), 'los trozos unidos son el archivo original');
+
+    // Rangos que no empiezan en múltiplo de 3 (bloques base64)
+    for (const [a, z] of [[1, 1], [2, 4], [1048575, 1048580], [original.length - 5, original.length - 1]]) {
+        const r = await fetch(dir, { headers: { Range: `bytes=${a}-${z}` } });
+        assert.ok(Buffer.from(await r.arrayBuffer()).equals(original.subarray(a, z + 1)), `rango ${a}-${z}`);
+    }
+
+    // Sufijo: los últimos 10 bytes
+    const cola = await fetch(dir, { headers: { Range: 'bytes=-10' } });
+    assert.ok(Buffer.from(await cola.arrayBuffer()).equals(original.subarray(-10)));
+
+    // Descarga completa sin Range: también correcta (enviada por trozos)
+    const completo = await fetch(dir);
+    assert.equal(completo.status, 200);
+    assert.equal(Number(completo.headers.get('content-length')), original.length);
+    assert.ok(Buffer.from(await completo.arrayBuffer()).equals(original));
+});
