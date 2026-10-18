@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { getTransacciones, createTransaccion, anularTransaccion, updateTransaccion, getCierresCaja, createCierreCaja, generarBoletaPdf } from '../controllers/finanzas.controller';
 
+import { requireRole } from '../middlewares/auth.middleware';
+import { ROLES } from '../auth/security';
+
 const router = Router();
 
 // =======================
@@ -8,7 +11,8 @@ const router = Router();
 // =======================
 router.get('/transacciones', getTransacciones);
 router.post('/transacciones', createTransaccion);
-router.put('/transacciones/:id/anular', anularTransaccion);
+// Anular una operación financiera: solo administrador
+router.put('/transacciones/:id/anular', requireRole(ROLES.ADMIN), anularTransaccion);
 router.put('/transacciones/:id', updateTransaccion);
 router.post('/transacciones/:id/boleta', generarBoletaPdf);
 

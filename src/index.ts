@@ -1,20 +1,33 @@
-import express, { Express, Request, Response } from 'express';
+import './env';
+import express, { Express, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import helmet from 'helmet';
+import { randomBytes } from 'crypto';
 import { prisma } from './prisma';
-
-dotenv.config();
-
-const app: Express = express();
-const port = process.env.PORT || 3000;
-
-// (Prisma client moved to src/prisma.ts)
+import { hashPassword } from './auth/security';
 
 // Importar Rutas Principales
 import apiRoutes from './routes/index.routes';
 
-// Middlewares
-app.use(cors());
+const app: Express = express();
+const port = process.env.PORT || 3000;
+
+// Render (y otros hosts) pasan las peticiones por un proxy: necesario para el límite de intentos por IP
+app.set('trust proxy', 1);
+
+// Cabeceras de seguridad
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// CORS: si CORS_ORIGINS está definido, solo esos dominios (separados por coma)
+const origenesPermitidos = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+if (origenesPermitidos.length === 0) {
+  console.warn('[SEGURIDAD] CORS_ORIGINS no definido: se aceptan peticiones de cualquier dominio.');
+}
+app.use(cors(origenesPermitidos.length ? { origin: origenesPermitidos } : undefined));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -26,118 +39,48 @@ app.get('/', (req: Request, res: Response) => {
   res.send('API Taller Backend Funcionado Correctamente');
 });
 
-// ⚠️ ENDPOINT TEMPORAL DE LIMPIEZA GENERAL
-app.delete('/api/admin/limpiar-todo', async (req: Request, res: Response) => {
-  const secret = req.headers['x-secret-key'];
-  if (secret !== 'LIMPIAR-TODO-JP-2026') {
-    res.status(403).json({ error: 'No autorizado' });
+// Errores no controlados (JSON mal formado, cuerpo demasiado grande, etc.): sin exponer detalles internos
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  if (err?.type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'El cuerpo de la petición no es un JSON válido.' });
     return;
   }
-  try {
-    const log: any = {};
-
-    // 1. Cierres de Caja
-    const cierres = await prisma.cierreCaja.deleteMany({});
-    log.cierresEliminados = cierres.count;
-
-    // 2. Transacciones
-    const txns = await prisma.transaccion.deleteMany({});
-    log.transaccionesEliminadas = txns.count;
-
-    // 3. Movimientos de inventario
-    const movs = await prisma.movimientoInventario.deleteMany({});
-    log.movimientosEliminados = movs.count;
-
-    // 4. Citas del taller
-    const citas = await prisma.cita.deleteMany({});
-    log.citasEliminadas = citas.count;
-
-    // 5. Desconectar Trabajadores de Guías (many-to-many) usando raw SQL
-    await prisma.$executeRaw`DELETE FROM "_GuiaTrabajadores"`;
-    log.relacionesGuiaTrabajadorEliminadas = true;
-
-    // 6. Asistencias
-    const asistencias = await prisma.asistencia.deleteMany({});
-    log.asistenciasEliminadas = asistencias.count;
-
-    // 7. Trabajadores
-    const trabajadores = await prisma.trabajador.deleteMany({});
-    log.trabajadoresEliminados = trabajadores.count;
-
-    // 8. Productos
-    const productos = await prisma.producto.deleteMany({});
-    log.productosEliminados = productos.count;
-
-    // 9. Cotizaciones
-    const cotizaciones = await prisma.cotizacion.deleteMany({});
-    log.cotizacionesEliminadas = cotizaciones.count;
-
-    // 10. Reseñas
-    const resenas = await prisma.resena.deleteMany({});
-    log.resenasEliminadas = resenas.count;
-
-    // 11. Usuarios
-    const usuarios = await prisma.usuario.deleteMany({});
-    log.usuariosEliminados = usuarios.count;
-
-    // 12. Obtener IDs de clientes y vehículos usados en guías (conservar)
-    const guias = await prisma.numeroGuia.findMany({ select: { clienteId: true, vehiculoId: true } });
-    const clientesConGuia = [...new Set(guias.map(g => g.clienteId))];
-    const vehiculosConGuia = [...new Set(guias.map(g => g.vehiculoId))];
-
-    // 13. Borrar clientes SIN guías
-    const clientes = await prisma.cliente.deleteMany({
-      where: { id: { notIn: clientesConGuia.length > 0 ? clientesConGuia : [-1] } }
-    });
-    log.clientesEliminados = clientes.count;
-    log.clientesConservados = clientesConGuia.length;
-
-    // 14. Borrar vehículos SIN guías
-    const vehiculos = await prisma.vehiculo.deleteMany({
-      where: { id: { notIn: vehiculosConGuia.length > 0 ? vehiculosConGuia : [-1] } }
-    });
-    log.vehiculosEliminados = vehiculos.count;
-    log.vehiculosConservados = vehiculosConGuia.length;
-
-    res.json({ ok: true, ...log });
-  } catch (error: any) {
-    console.error('Error en limpieza:', error);
-    res.status(500).json({ error: 'Error al limpiar', detalle: error?.message });
+  if (err?.type === 'entity.too.large') {
+    res.status(413).json({ error: 'El archivo o los datos enviados son demasiado grandes.' });
+    return;
   }
+  console.error('[ERROR]', err);
+  res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
-// Inicialización: crear configuración admin por defecto si no existe
+/**
+ * Inicialización: crea la configuración del taller si no existe.
+ * Ya NO sobrescribe las credenciales existentes en cada arranque.
+ * La contraseña inicial solo se toma de ADMIN_INITIAL_PASSWORD (nunca del código).
+ */
 async function initAdmin() {
   try {
     const config = await prisma.configuracion.findFirst();
-    if (!config) {
-      await prisma.configuracion.create({
-        data: {
-          id: 1,
-          nombreResponsable: 'Administrador',
-          email: 'admin@tallerjp.com',
-          telefono: '+51 999 888 777',
-          nombreTaller: 'Frenos y Embragues Juan Pablo',
-          ruc: '20601234567',
-          direccion: 'Av. Los Mecánicos 123, Lima',
-          usuario: 'administrador',
-          password: 'TallerJuanP2026'
-        }
-      });
-      console.log('[INIT] Configuración admin creada exitosamente (administrador / TallerJuanP2026)');
-    } else {
-      // Forzar actualización de credenciales para producción/desarrollo si ya existe configuración
-      await prisma.configuracion.update({
-        where: { id: config.id },
-        data: {
-          usuario: 'administrador',
-          password: 'TallerJuanP2026'
-        }
-      });
-      console.log('[INIT] Configuración admin actualizada a (administrador / TallerJuanP2026)');
-    }
+    if (config) return;
+
+    const inicial = process.env.ADMIN_INITIAL_PASSWORD;
+    await prisma.configuracion.create({
+      data: {
+        id: 1,
+        nombreResponsable: 'Administrador',
+        nombreTaller: 'Frenos y Embragues Juan Pablo',
+        usuario: 'administrador',
+        // Sin contraseña inicial se guarda una aleatoria: nadie puede entrar con un valor por defecto
+        password: await hashPassword(inicial || randomBytes(32).toString('hex')),
+      }
+    });
+    console.log(
+      inicial
+        ? '[INIT] Configuración creada con la contraseña de ADMIN_INITIAL_PASSWORD.'
+        : '[INIT] Configuración creada SIN contraseña: define ADMIN_INITIAL_PASSWORD y reinicia, o crea un usuario ADMIN.'
+    );
   } catch (error) {
-    console.error('[INIT] Error al crear o actualizar configuración admin:', error);
+    console.error('[INIT] Error al crear la configuración inicial:', error);
   }
 }
 
@@ -150,9 +93,9 @@ const server = app.listen(port, () => {
 // Manejo de errores en el servidor (ej: EADDRINUSE)
 server.on('error', (error: any) => {
   if (error.code === 'EADDRINUSE') {
-    console.error(`[PDF-ERROR] El puerto ${port} ya está en uso. Por favor, cierra el proceso anterior.`);
+    console.error(`[server] El puerto ${port} ya está en uso. Por favor, cierra el proceso anterior.`);
   } else {
-    console.error(`[PDF-ERROR] Error en el servidor:`, error);
+    console.error(`[server] Error en el servidor:`, error);
   }
   process.exit(1);
 });

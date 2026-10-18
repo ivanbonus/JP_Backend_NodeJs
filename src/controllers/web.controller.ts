@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma';
+import { firmarTokenBoleta } from '../auth/security';
 
 // Obtener productos visibles en la web
 export const getProductosWeb = async (req: Request, res: Response) => {
@@ -499,13 +500,11 @@ export const registrarVentaWeb = async (req: Request, res: Response) => {
       }
     }
 
-    res.status(201).json(nuevaVenta);
+    // Token temporal para que el comprador descargue su boleta sin iniciar sesión
+    res.status(201).json({ ...nuevaVenta, boletaToken: firmarTokenBoleta(nuevaVenta.id) });
   } catch (error: any) {
     console.error('[WEB-VENTA] ERROR GENERAL:', error);
-    res.status(500).json({ 
-      error: 'Error del servidor al procesar la compra.',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Error del servidor al procesar la compra.' });
   }
 };
 

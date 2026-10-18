@@ -52,7 +52,7 @@ export const createTrabajador = async (req: Request, res: Response) => {
       res.status(400).json({ error: 'El DNI ingresado ya está registrado en el sistema.' });
       return;
     }
-    res.status(500).json({ error: 'Error del servidor al crear trabajador.', details: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Error del servidor al crear trabajador.' });
   }
 };
 
@@ -109,6 +109,6 @@ export const deleteTrabajador = async (req: Request, res: Response) => {
     res.json({ message: 'Trabajador eliminado exitosamente.' });
   } catch (error: any) {
     console.error('Error al eliminar trabajador:', error);
-    res.status(500).json({ error: 'Error del servidor al eliminar trabajador.', details: error.message });
+    res.status(500).json({ error: 'Error del servidor al eliminar trabajador.' });
   }
 };

@@ -249,8 +249,10 @@ model Usuario {
   email     String   @unique
   password  String?  // Opcional para usuarios de Google
   googleId  String?  @unique
-  rol       String   @default("USER") // ADMIN, USER
+  rol       String   @default("USER") // ADMIN, OPERADOR, CONTABILIDAD, USER
   fecha     DateTime @default(now())
+  debeCambiarPassword Boolean @default(false)
+  sesionVersion       Int     @default(0)
 }
 
 // ==========================================
@@ -265,9 +267,11 @@ model Configuracion {
   ruc               String   @default("20601234567")
   direccion         String   @default("Av. Los Mecánicos 123, Lima")
   
-  // Seguridad
-  usuario           String   @default("administrador")
-  password          String   @default("TallerJuanP2026")
+  // Seguridad (la contraseña se guarda cifrada con bcrypt; sin valor por defecto)
+  usuario             String   @default("administrador")
+  password            String
+  debeCambiarPassword Boolean  @default(false)
+  sesionVersion       Int      @default(0) // Al cambiar la contraseña se invalidan las sesiones anteriores
 
   // Notificaciones (Opcional por ahora)
   notifEmail        Boolean  @default(true)
@@ -353,3 +357,51 @@ model Novedad {
   fecha       DateTime @default(now())
 }
 
+// ==========================================
+// SEGURIDAD: VERIFICACIÓN EN DOS PASOS (TOTP)
+// ==========================================
+model SegundoFactor {
+  id                  Int       @id @default(autoincrement())
+  cuenta              String    @unique // "config" (administrador principal) o "usuario:<id>"
+  activo              Boolean   @default(false)
+  codigosRecuperacion String[]  // Hashes bcrypt de los códigos de recuperación (compartidos por la cuenta)
+  activadoEn          DateTime?
+  creadoEn            DateTime  @default(now())
+  actualizadoEn       DateTime  @updatedAt
+}
+
+// Cada celular con la aplicación de autenticación (varios por cuenta)
+model DispositivoVerificacion {
+  id             Int       @id @default(autoincrement())
+  cuenta         String    // misma referencia que SegundoFactor.cuenta
+  nombre         String    // p. ej. "Celular de Juan"
+  secretoCifrado String    // Secreto TOTP cifrado con AES-256-GCM
+  confirmado     Boolean   @default(false) // true cuando se verificó el primer código
+  ultimoPaso     Int?      // Último intervalo usado con este celular: evita reutilizar un código
+  ultimoUso      DateTime?
+  creadoEn       DateTime  @default(now())
+
+  @@index([cuenta])
+}
+
+// ==========================================
+// AUDITORÍA
+// ==========================================
+model Auditoria {
+  id          Int      @id @default(autoincrement())
+  fecha       DateTime @default(now())
+  cuenta      String   // Quién: "administrador", correo o "anonimo"
+  rol         String?
+  accion      String   // LOGIN_OK, LOGIN_FALLIDO, CREAR, EDITAR, ELIMINAR, ANULAR, 2FA_ACTIVADO, ...
+  entidad     String?  // clientes, finanzas, inventario, ...
+  entidadId   String?
+  metodo      String?
+  ruta        String?
+  estadoHttp  Int?
+  ip          String?
+  detalle     Json?
+
+  @@index([fecha])
+  @@index([entidad, entidadId])
+  @@index([accion])
+}
