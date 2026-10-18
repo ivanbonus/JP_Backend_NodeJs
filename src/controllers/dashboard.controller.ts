@@ -1,12 +1,16 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma';
+import { partesLima, parsearFecha } from '../utils/fechas';
+import { normalizarMetodoPago, ETIQUETA_METODO, esSaldoInicial } from '../utils/caja';
 
 export const getDashboardData = async (req: Request, res: Response) => {
   try {
     const hoyDate = new Date();
-    const hoyStr = hoyDate.toLocaleDateString('en-GB'); // DD/MM/YYYY
-    const mesActual = hoyDate.getMonth(); // 0-11
-    const anioActual = hoyDate.getFullYear();
+    // "Hoy" y "este mes" según la hora de Lima (el servidor corre en UTC)
+    const lima = partesLima(hoyDate);
+    const diaActual = lima.dia;
+    const mesActual = lima.mes - 1; // 0-11
+    const anioActual = lima.anio;
 
     const transacciones = await prisma.transaccion.findMany({
       include: {
@@ -53,6 +57,7 @@ export const getDashboardData = async (req: Request, res: Response) => {
     let porCobrar = 0;
 
     const ingresosPorMetodo: Record<string, number> = {};
+    const egresosPorMetodo: Record<string, number> = {};
     const egresosPorCategoria: Record<string, number> = {};
 
     // Array para gráfica (12 meses)
@@ -135,21 +140,18 @@ export const getDashboardData = async (req: Request, res: Response) => {
     }
 
     for (const txn of transacciones) {
+      // El saldo/fondo inicial de caja NO es un ingreso: no entra en KPIs, gráficas ni distribuciones
+      if (esSaldoInicial(txn)) continue;
+
       const isIngreso = txn.tipo === 'INGRESO';
       const isEgreso = txn.tipo === 'EGRESO';
       
-      // Aseguramos parsear las fechas de las transacciones (ej: "17/3/2026")
-      // a veces vienen como "17/03/2026", "1/3/2026", etc.
-      const partesFecha = txn.fecha.split('/');
-      let diaTxn = 0;
-      let mesTxn = 0;
-      let anioTxn = 0;
-
-      if (partesFecha.length === 3) {
-         diaTxn = parseInt(partesFecha[0], 10);
-         mesTxn = parseInt(partesFecha[1], 10) - 1; // 0-indexed para coincidir con getMonth()
-         anioTxn = parseInt(partesFecha[2], 10);
-      }
+      // Fechas guardadas como "DD/MM/YYYY" (registros antiguos pueden venir como "1/3/2026")
+      const partesFecha = parsearFecha(txn.fecha);
+      const diaTxn = partesFecha?.dia ?? 0;
+      const mesTxn = partesFecha ? partesFecha.mes - 1 : -1; // 0-indexed para coincidir con los meses del gráfico
+      const anioTxn = partesFecha?.anio ?? 0;
+      const metodo = ETIQUETA_METODO[normalizarMetodoPago(txn.metodoPago)];
 
       // Últimas transacciones (top 6 global)
       if (ultimasTxns.length < 6) {
@@ -171,7 +173,7 @@ export const getDashboardData = async (req: Request, res: Response) => {
       }
 
       // Cálculos mensuales (año actual)
-      if (anioTxn === anioActual && txn.estado === 'COMPLETADO') {
+      if (partesFecha && anioTxn === anioActual && txn.estado === 'COMPLETADO') {
         if (isIngreso) ingresosData[mesTxn] += txn.monto;
         if (isEgreso) egresosData[mesTxn] += txn.monto;
 
@@ -183,7 +185,7 @@ export const getDashboardData = async (req: Request, res: Response) => {
       }
 
       // Cálculos de HOY (coincide formato fecha DD/MM/YYYY)
-      if (txn.fecha === hoyStr || (diaTxn === hoyDate.getDate() && mesTxn === mesActual && anioTxn === anioActual)) {
+      if (diaTxn === diaActual && mesTxn === mesActual && anioTxn === anioActual) {
         if (txn.estado === 'COMPLETADO') {
             if (isIngreso) {
                 ingresoHoy += txn.monto;
@@ -200,15 +202,12 @@ export const getDashboardData = async (req: Request, res: Response) => {
                     });
                 }
 
-                // Distribución métodos de pago (hoy)
-                const metodo = txn.metodoPago === 'TRANSFERENCIA' ? 'Transferencia' : 
-                                (txn.metodoPago === 'TARJETA' ? 'Tarjeta' : 
-                                (txn.metodoPago === 'YAPE' || txn.metodoPago === 'PLIN' ? 'Yape/Plin' : 'Efectivo'));
-                
+                // Distribución métodos de pago (hoy), con el método normalizado (no se asume efectivo)
                 ingresosPorMetodo[metodo] = (ingresosPorMetodo[metodo] || 0) + txn.monto;
             }
             if (isEgreso) {
                 egresoHoy += txn.monto;
+                egresosPorMetodo[metodo] = (egresosPorMetodo[metodo] || 0) + txn.monto;
 
                 // Alerta Egreso / Pago de personal (solo los más recientes del día)
                 if (alertasBackend.filter(a => a.tipo === 'pago').length < 3) {
@@ -291,6 +290,10 @@ export const getDashboardData = async (req: Request, res: Response) => {
         ingresoMes,
         egresoMes,
         porCobrar: montoPagosPorCobrar,
+        // Montos de hoy por método (Efectivo = dinero físico; el resto son medios electrónicos)
+        ingresosHoyPorMetodo: ingresosPorMetodo,
+        egresosHoyPorMetodo: egresosPorMetodo,
+        efectivoHoy: (ingresosPorMetodo['Efectivo'] || 0) - (egresosPorMetodo['Efectivo'] || 0),
         conteoPorCobrar: contadorPagosPorCobrar,
         vehiculosTaller: vehiculosEnTallerCount,
       },

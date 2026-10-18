@@ -3,6 +3,8 @@ import { prisma } from '../prisma';
 import path from 'path';
 import fs from 'fs';
 import { generarBoletaPdfKit } from '../utils/pdfKitGenerator';
+import { hoyLima, horaLima, normalizarFecha, variantesFecha } from '../utils/fechas';
+import { esSaldoInicial, prefijoNumero, siguienteCorrelativo } from '../utils/caja';
 
 // Obtener todas las transacciones (historial)
 export const getTransacciones = async (req: Request, res: Response) => {
@@ -18,34 +20,109 @@ export const getTransacciones = async (req: Request, res: Response) => {
   }
 };
 
+// ¿Error de Prisma por valor único repetido (numero @unique)?
+const esColisionUnica = (error: unknown) =>
+  typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
+
+/**
+ * Registra el saldo/fondo inicial del día. Hay uno por día (numero SALDO-DDMMYYYY):
+ * si ya existe, se actualiza en lugar de fallar por numero @unique.
+ */
+const guardarSaldoInicial = async (datos: { monto: number; fecha?: string; hora?: string; nota?: string; clienteNombre?: string; categoria?: string }) => {
+  const fecha = normalizarFecha(datos.fecha) || hoyLima();
+  const numero = `SALDO-${fecha.replace(/\//g, '')}`;
+  const cambios = {
+    monto: datos.monto,
+    hora: datos.hora || horaLima(),
+    estado: 'COMPLETADO',
+    metodoPago: 'Efectivo',
+    ...(datos.nota !== undefined ? { nota: datos.nota } : {}),
+  };
+
+  for (let intento = 0; intento < 3; intento++) {
+    const existente = await prisma.transaccion.findUnique({ where: { numero } });
+    if (existente) {
+      return { creado: false, registro: await prisma.transaccion.update({ where: { numero }, data: cambios }) };
+    }
+    try {
+      const registro = await prisma.transaccion.create({
+        data: {
+          ...cambios,
+          numero,
+          tipo: 'INGRESO', // se mantiene por compatibilidad con registros antiguos; los cálculos lo excluyen por su numero
+          concepto: 'Saldo Inicial de Apertura',
+          categoria: datos.categoria || 'Saldo Inicial',
+          fecha,
+          clienteNombre: datos.clienteNombre || 'Apertura de Caja',
+        },
+      });
+      return { creado: true, registro };
+    } catch (error) {
+      if (!esColisionUnica(error)) throw error; // otro proceso lo creó a la vez: se actualiza en el siguiente intento
+    }
+  }
+  throw new Error('No se pudo registrar el saldo inicial');
+};
+
 export const createTransaccion = async (req: Request, res: Response) => {
   try {
     const { numero, tipo, monto, metodoPago, concepto, categoria, fecha, hora, estado, nota, clienteNombre, numeroGuiaId } = req.body;
 
-    // Validación básica
-    if (!numero || !tipo || !monto || !concepto || !metodoPago) {
+    // Validación básica (el número ya no es obligatorio: lo asigna el servidor)
+    if (!tipo || !monto || !concepto || !metodoPago) {
       res.status(400).json({ error: 'Faltan campos obligatorios para registrar la transacción' });
       return;
     }
+    const montoNum = Number(monto);
+    if (!Number.isFinite(montoNum) || montoNum <= 0) {
+      res.status(400).json({ error: 'El monto debe ser un número mayor a 0' });
+      return;
+    }
 
-    const nuevaTxn = await prisma.transaccion.create({
-      data: {
-        numero,
-        tipo,
-        monto: Number(monto),
-        metodoPago,
-        concepto,
-        categoria: categoria || 'Otros',
-        fecha,
-        hora,
-        estado: estado || 'COMPLETADO',
-        nota,
-        clienteNombre,
-        numeroGuiaId: numeroGuiaId ? Number(numeroGuiaId) : null
+    // Saldo inicial: uno por día, se actualiza si ya existe
+    if (esSaldoInicial({ numero, categoria })) {
+      const { creado, registro } = await guardarSaldoInicial({ monto: montoNum, fecha, hora, nota, clienteNombre, categoria });
+      res.status(creado ? 201 : 200).json(registro);
+      return;
+    }
+
+    // Número: se respeta el sugerido si está libre; si falta o ya existe, se asigna el siguiente del mismo prefijo
+    const prefijo = prefijoNumero(numero, tipo);
+    const siguiente = async () => {
+      const existentes = await prisma.transaccion.findMany({
+        where: { numero: { startsWith: `${prefijo}-` } },
+        select: { numero: true },
+      });
+      return siguienteCorrelativo(prefijo, existentes.map(e => e.numero));
+    };
+    let candidato = typeof numero === 'string' && numero.trim() ? numero.trim() : await siguiente();
+
+    for (let intento = 0; intento < 8; intento++) {
+      try {
+        const nuevaTxn = await prisma.transaccion.create({
+          data: {
+            numero: candidato,
+            tipo,
+            monto: montoNum,
+            metodoPago,
+            concepto,
+            categoria: categoria || 'Otros',
+            fecha: normalizarFecha(fecha) || hoyLima(),
+            hora: hora || horaLima(),
+            estado: estado || 'COMPLETADO',
+            nota,
+            clienteNombre,
+            numeroGuiaId: numeroGuiaId ? Number(numeroGuiaId) : null
+          }
+        });
+        res.status(201).json(nuevaTxn);
+        return;
+      } catch (error) {
+        if (!esColisionUnica(error)) throw error;
+        candidato = await siguiente(); // otro registro tomó ese número: se recalcula y se reintenta
       }
-    });
-
-    res.status(201).json(nuevaTxn);
+    }
+    res.status(409).json({ error: 'No se pudo asignar un número de transacción, intente nuevamente' });
   } catch (error) {
     console.error('Error al crear transacción:', error);
     res.status(500).json({ error: 'Error del servidor al registrar transacción' });
@@ -100,9 +177,9 @@ export const updateTransaccion = async (req: Request, res: Response) => {
     // De momento mantendremos la fecha original, o actualizamos si es negocio.
     // Es mejor actualizar la fecha de cobro a la fecha actual para que suba a caja de hoy.
     if (estado === 'COMPLETADO' && txn.estado === 'PENDIENTE') {
-      const ahora = new Date();
-      dataToUpdate.fecha = ahora.toLocaleDateString('en-GB'); // DD/MM/YYYY
-      dataToUpdate.hora = ahora.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+      // Fecha y hora de cobro en Lima (no la del servidor, que corre en UTC)
+      dataToUpdate.fecha = hoyLima(); // DD/MM/YYYY
+      dataToUpdate.hora = horaLima();
     }
 
     const updatedTxn = await prisma.transaccion.update({
@@ -136,40 +213,49 @@ export const getCierresCaja = async (req: Request, res: Response) => {
 
 export const createCierreCaja = async (req: Request, res: Response) => {
   try {
-    const { turno, montoInicial, efectivoCaja, totalEfectivo, totalTarjeta, totalTransferencia, totalYape, totalGeneral, diferencia, cerradoPor, observaciones } = req.body;
+    const { turno, montoInicial, efectivoCaja, totalEfectivo, totalTarjeta, totalTransferencia, totalYape, totalGeneral, diferencia, cerradoPor, observaciones, efectivoEsperado, totalElectronico } = req.body;
 
-    const nuevoCierre = await prisma.cierreCaja.create({
-      data: {
-        montoInicial: Number(montoInicial) || 0,
-        montoFinal: Number(efectivoCaja) || 0,
-        estado: 'CERRADA',
-        fechaCierre: new Date(),
-        observaciones: JSON.stringify({
-          turno,
-          diferencia: Number(diferencia),
-          cerradoPor,
-          totalEfectivo: Number(totalEfectivo),
-          totalTarjeta: Number(totalTarjeta),
-          totalTransferencia: Number(totalTransferencia),
-          totalYape: Number(totalYape),
-          totalGeneral: Number(totalGeneral),
-          nota: observaciones
-        })
-      }
+    // Día de caja según la hora de Lima (el servidor corre en UTC)
+    const hoy = hoyLima();
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const nuevoCierre = await tx.cierreCaja.create({
+        data: {
+          montoInicial: Number(montoInicial) || 0,
+          montoFinal: Number(efectivoCaja) || 0,
+          estado: 'CERRADA',
+          fechaCierre: new Date(),
+          observaciones: JSON.stringify({
+            turno,
+            fechaCaja: hoy,
+            diferencia: Number(diferencia),
+            cerradoPor,
+            totalEfectivo: Number(totalEfectivo),
+            totalTarjeta: Number(totalTarjeta),
+            totalTransferencia: Number(totalTransferencia),
+            totalYape: Number(totalYape),
+            totalGeneral: Number(totalGeneral),
+            ...(efectivoEsperado !== undefined ? { efectivoEsperado: Number(efectivoEsperado) } : {}),
+            ...(totalElectronico !== undefined ? { totalElectronico: Number(totalElectronico) } : {}),
+            nota: observaciones
+          })
+        }
+      });
+
+      // Vincular SOLO las transacciones cobradas del día (Lima) que aún no pertenecen a otro cierre.
+      // Se buscan también las fechas antiguas escritas sin ceros ("1/3/2026").
+      const vinculadas = await tx.transaccion.updateMany({
+        where: {
+          fecha: { in: variantesFecha(hoy) },
+          estado: 'COMPLETADO',
+          cierreCajaId: null
+        },
+        data: { cierreCajaId: nuevoCierre.id }
+      });
+      return { nuevoCierre, vinculadas: vinculadas.count };
     });
 
-    // Marcar transacciones de hoy cobradas como vinculadas a este cierre
-    const hoy = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
-    await prisma.transaccion.updateMany({
-      where: {
-        fecha: hoy,
-        estado: 'COMPLETADO',
-        cierreCajaId: null
-      },
-      data: { cierreCajaId: nuevoCierre.id }
-    });
-
-    res.status(201).json(nuevoCierre);
+    res.status(201).json({ ...resultado.nuevoCierre, transaccionesVinculadas: resultado.vinculadas });
   } catch (error) {
     console.error('Error al crear cierre de caja:', error);
     res.status(500).json({ error: 'Error del servidor al registrar cierre de caja' });
