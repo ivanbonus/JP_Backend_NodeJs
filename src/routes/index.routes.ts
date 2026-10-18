@@ -14,11 +14,14 @@ import { panelOperativo, soloAdmin, requireAuth, requireRole } from '../middlewa
 import { ROLES_PANEL } from '../auth/security';
 import { auditarCambios } from '../auth/auditoria';
 import { listarAuditoria } from '../controllers/auditoria.controller';
+import { servirMedia } from '../utils/media';
 
 const router = Router();
 
 // Públicas (con sus propias rutas protegidas internamente)
 router.use('/auth', authRoutes);
+// Fotos y videos (pública, pero solo con la huella exacta del contenido)
+router.get('/media/:tipo/:id/:hash', servirMedia);
 router.use('/web', auditarCambios('web'), webRoutes);
 router.use('/cotizaciones', auditarCambios('cotizaciones'), cotizacionRoutes);
 

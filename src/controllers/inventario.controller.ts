@@ -1,17 +1,20 @@
 import { Request, Response } from 'express';
+import { agregarDireccionesMedia, conDireccionMedia, valorMediaParaGuardar } from '../utils/media';
 import { prisma } from '../prisma';
 
 export const getProductos = async (req: Request, res: Response) => {
   try {
+    // Sin la foto completa: cada foto se pide aparte por su dirección (/api/media/...)
     const productos = await prisma.producto.findMany({
-      include: {
+      select: {
+        id: true, sku: true, nombre: true, descripcion: true, categoria: true, marca: true, precio: true, stockActual: true, stockMinimo: true, visibleEnWeb: true,
         movimientos: {
           orderBy: { fecha: 'desc' }
         }
       },
       orderBy: { nombre: 'asc' }
     });
-    res.json(productos);
+    res.json(await agregarDireccionesMedia(req, 'producto', 'foto', productos));
   } catch (error) {
     console.error('Error al obtener productos:', error);
     res.status(500).json({ error: 'Error del servidor al obtener productos.' });
@@ -35,11 +38,11 @@ export const createProducto = async (req: Request, res: Response): Promise<void>
         categoria, 
         marca, 
         stockActual: Number(stockActual) || 0,
-        foto
+        foto: valorMediaParaGuardar(foto, 'producto') ?? null
       }
     });
 
-    res.status(201).json(nuevoProducto);
+    res.status(201).json(conDireccionMedia(req, 'producto', 'foto', nuevoProducto));
   } catch (error) {
     console.error('Error al crear producto:', error);
     res.status(500).json({ error: 'Error del servidor al crear producto.' });
@@ -86,11 +89,13 @@ export const updateProducto = async (req: Request, res: Response): Promise<void>
       where: { id: Number(id) },
       data: { 
         sku, nombre, precio: Number(precio), categoria, marca, 
-        stockActual: Number(stockActual), foto,
+        stockActual: Number(stockActual),
+        // La dirección propia de la foto significa "sin cambios"
+        ...(valorMediaParaGuardar(foto, 'producto') !== undefined ? { foto: valorMediaParaGuardar(foto, 'producto') } : {}),
         ...(visibleEnWeb !== undefined ? { visibleEnWeb: Boolean(visibleEnWeb) } : {})
       }
     });
-    res.json(actualizado);
+    res.json(conDireccionMedia(req, 'producto', 'foto', actualizado));
   } catch (error) {
     console.error('Error al actualizar producto:', error);
     res.status(500).json({ error: 'Error al actualizar producto.' });
@@ -109,7 +114,7 @@ export const toggleVisibleWeb = async (req: Request, res: Response): Promise<voi
       where: { id: Number(id) },
       data: { visibleEnWeb: !producto.visibleEnWeb }
     });
-    res.json(actualizado);
+    res.json(conDireccionMedia(req, 'producto', 'foto', actualizado));
   } catch (error) {
     console.error('Error al cambiar visibilidad web:', error);
     res.status(500).json({ error: 'Error al cambiar visibilidad.' });

@@ -35,7 +35,6 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.3",
     "pdfkit": "^0.18.0",
-    "puppeteer": "^24.40.0",
     "qrcode": "^1.5.4",
     "zod": "^4.6.7"
   },

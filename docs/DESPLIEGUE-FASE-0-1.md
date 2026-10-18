@@ -1,82 +1,113 @@
-# Despliegue de las Fases 0 y 1 (seguridad, verificación en dos pasos, auditoría y Caja)
+# Despliegue de las Fases 0 y 1 (seguridad, verificación en dos pasos, auditoría, Caja y estabilidad)
 
-> Backend y frontend deben desplegarse **juntos**. Si solo se despliega uno, el panel deja de cargar datos.
-> Haz todo en un horario sin atención al público.
+Entorno real: **Render Free** (backend, sin pestaña *Shell*) + **Neon Free** (PostgreSQL).
+Por eso las migraciones y los comandos de administración se ejecutan **desde tu PC**, conectándote a Neon.
 
-## 0. Antes de empezar
+> Backend y frontend deben desplegarse **juntos**. Hazlo en un horario sin atención al público.
 
-1. **Respaldo de la base de datos.** En Render → base de datos → *Backups* → crear un respaldo manual (o `pg_dump`).
-2. Ten el celular con **Google Authenticator** o **Microsoft Authenticator** instalado.
+---
 
-## 1. Variables de entorno nuevas (Render → servicio backend → *Environment*)
+## 0. Variables en Render (antes de subir a `main`)
 
-| Variable | Valor | Cómo generarlo |
-|---|---|---|
-| `JWT_SECRET` | 96 caracteres aleatorios | `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
-| `DATA_ENCRYPTION_KEY` | 64 caracteres hexadecimales | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `GOOGLE_CLIENT_ID` | El mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend | — |
-| `CORS_ORIGINS` (opcional) | Dominios del frontend separados por coma, p. ej. `https://www.frenosembraguesjp.com,https://frenosembraguesjp.com` | — |
+Render → servicio **JP_Backend_NodeJs** → *Environment*:
 
-⚠️ **No pierdas `DATA_ENCRYPTION_KEY`**: si cambia, la verificación en dos pasos deja de funcionar y habrá que restablecerla (`npm run admin:2fa:reset`).
-**No** definas `ADMIN_INITIAL_PASSWORD` ni `RATE_LIMIT_MULTIPLICADOR` en producción.
-
-## 2. Migraciones (la primera vez, en este orden)
-
-Producción se creó con `prisma db push`, así que la migración *baseline* **no debe ejecutarse**: solo se marca como aplicada.
-
-Desde **Render → Shell** del backend (ya desplegado el código nuevo, pero ANTES de usar el panel):
-
-```bash
-# 2.0 Ver qué migraciones figuran como aplicadas. Lo esperado: las dos de marzo 2026 aplicadas
-#     y la baseline + fase1 pendientes. Si las de marzo NO figuran, márcalas también con
-#     `migrate resolve --applied <nombre>` antes de seguir.
-npx prisma migrate status
-
-# 2.1 Comprobar diferencias entre producción y el esquema nuevo.
-#     Lo esperado: SOLO lo de la migración fase1 (columnas debeCambiarPassword y sesionVersion,
-#     password sin valor por defecto, tablas SegundoFactor y Auditoria).
-#     Si aparece cualquier otra cosa (DROP de columnas/tablas existentes), DETENTE y avisa.
-npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
-
-# 2.2 Marcar la baseline como aplicada (NO la ejecuta)
-npx prisma migrate resolve --applied 20261017184812_baseline_sincronizar_db_push
-
-# 2.3 Aplicar las migraciones nuevas (solo agregan columnas y tablas)
-npx prisma migrate deploy
-
-# 2.4 Verificar que no quedan diferencias (debe decir que está vacío)
-npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
-```
-
-En despliegues futuros basta con `npx prisma migrate deploy` (se puede añadir al *Build Command* de Render
-después de completar este primer proceso).
-
-## 3. Contraseña y verificación del administrador
-
-```bash
-# En Render → Shell: genera una contraseña temporal segura (se muestra una sola vez)
-npm run admin:password
-```
-
-1. Entra al panel con `administrador` y esa contraseña temporal.
-2. El sistema pedirá **elegir una contraseña nueva** (mínimo 12 caracteres; recomendado una frase).
-3. Luego pedirá **activar la verificación en dos pasos**: escanea el QR y escribe el código.
-4. **Guarda los 10 códigos de recuperación** (descárgalos y guárdalos fuera del celular).
-
-Todas las sesiones abiertas antes del despliegue se cierran: hay que volver a iniciar sesión.
-
-## 4. Emergencias
-
-| Situación | Solución (Render → Shell) |
+| Variable | Valor |
 |---|---|
-| Olvidé la contraseña | `npm run admin:password` → contraseña temporal, al entrar se elige una nueva |
-| Perdí el celular | Entra con un **código de recuperación** y en Configuración → *Cambiar de celular* |
-| Perdí el celular **y** los códigos | `npm run admin:2fa:reset` → al entrar se configura de nuevo |
+| `DATABASE_URL` | (ya existe) |
+| `JWT_SECRET` | 96 caracteres aleatorios |
+| `DATA_ENCRYPTION_KEY` | 64 caracteres hexadecimales |
+| `GOOGLE_CLIENT_ID` | el mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend |
+| `CORS_ORIGINS` (opcional) | dominios del frontend separados por coma |
 
-## 5. Comprobaciones después del despliegue
+⚠️ **No pierdas `DATA_ENCRYPTION_KEY`**: si cambia, la verificación en dos pasos deja de funcionar
+(se restablece con `admin:2fa:reset`). **No** definas `ADMIN_INITIAL_PASSWORD` ni `RATE_LIMIT_MULTIPLICADOR`.
 
-- [ ] Sin iniciar sesión, `https://<backend>/api/clientes` responde "Sesión no válida".
+---
+
+## 1. Ensayo en una COPIA de la base (Neon branch) — recomendado
+
+1. Neon → tu proyecto → **Branches** → **Create branch** (desde `main`, con los datos actuales). Llámala `ensayo-fase1`.
+2. Copia su **connection string directa** (Neon → *Connect* → desactiva *Connection pooling*; la dirección **no** debe decir `-pooler`).
+3. En PowerShell, dentro de `D:\JP\JP_Backend_NodeJS`:
+
+```powershell
+$env:DATABASE_URL = "postgresql://...(la de la COPIA)..."
+npx prisma migrate status
+npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+npx prisma migrate resolve --applied 20261017184812_baseline_sincronizar_db_push
+npx prisma migrate deploy
+npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+```
+
+- El primer `diff` debe mostrar **solo** lo de la migración fase1: columnas `debeCambiarPassword` y `sesionVersion`,
+  `password` sin valor por defecto, tablas `SegundoFactor`, `DispositivoVerificacion` y `Auditoria`.
+  Si aparece cualquier `DROP` de columnas o tablas existentes, **detente y avisa**.
+- El último `diff` debe estar vacío.
+- Si `migrate status` dice que las dos migraciones de marzo 2026 **no** están aplicadas, márcalas también
+  con `npx prisma migrate resolve --applied <nombre>` antes de seguir.
+
+Si el ensayo sale bien, borra la branch `ensayo-fase1` en Neon.
+
+---
+
+## 2. Base real (los mismos comandos, con la base principal)
+
+1. Neon → *Backup & Restore* / o crea una branch `respaldo-antes-fase1` (sirve de respaldo instantáneo).
+2. En PowerShell, con la connection string **directa** de la base principal:
+
+```powershell
+$env:DATABASE_URL = "postgresql://...(la PRINCIPAL, sin -pooler)..."
+npx prisma migrate status
+npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+npx prisma migrate resolve --applied 20261017184812_baseline_sincronizar_db_push
+npx prisma migrate deploy
+```
+
+3. Subir el código a `main` (backend y frontend). Render despliega solo.
+
+---
+
+## 3. Contraseña y verificación del administrador (desde tu PC)
+
+Con la misma ventana de PowerShell (con `$env:DATABASE_URL` de la base principal):
+
+```powershell
+npm run admin:password:dev
+```
+
+1. Aparece una **contraseña temporal** (solo esta vez).
+2. Entra al panel con `administrador` y esa contraseña.
+3. El sistema pide **elegir una contraseña nueva** (mínimo 12 caracteres; recomendado una frase).
+4. Luego pide **activar la verificación en dos pasos**: nombre del celular → QR → código.
+5. **Guarda los 10 códigos de recuperación** fuera del celular.
+6. En Configuración → Seguridad → **Agregar celular** registra los demás celulares (hasta 5).
+
+Cierra la ventana de PowerShell al terminar (así `DATABASE_URL` no queda en memoria).
+
+---
+
+## 4. Mantener despierto el servidor gratis (opcional)
+
+Render Free “duerme” el backend tras 15 min sin uso (la primera visita tarda ~50 s).
+Gratis: crea una cuenta en **cron-job.org** (o UptimeRobot) y programa una visita cada **10 minutos** a
+`https://jp-backend-nodejs.onrender.com/`. Render Free da 750 h/mes, suficiente para un servicio encendido todo el mes.
+
+---
+
+## 5. Emergencias (desde tu PC, con `$env:DATABASE_URL` de la base principal)
+
+| Situación | Comando |
+|---|---|
+| Olvidé la contraseña | `npm run admin:password:dev` → contraseña temporal; al entrar se elige una nueva |
+| Perdí un celular | Entra con otro celular o un **código de recuperación** y quita el celular perdido en Configuración |
+| Perdí todos los celulares **y** los códigos | `npm run admin:2fa:reset:dev` → al entrar se configura de nuevo |
+
+---
+
+## 6. Comprobaciones después del despliegue
+
+- [ ] Sin iniciar sesión, `https://jp-backend-nodejs.onrender.com/api/clientes` responde "Sesión no válida".
 - [ ] El inicio de sesión pide el código de 6 dígitos.
-- [ ] Configuración → *Actividad reciente* muestra el inicio de sesión.
-- [ ] La web pública funciona: cotizar, tienda, novedades, reservar cita.
+- [ ] Configuración → *Actividad reciente* muestra el inicio de sesión con el nombre del celular.
+- [ ] La web pública funciona: cotizar, tienda (fotos), novedades (fotos y videos), reservar cita.
 - [ ] Caja Diaria y Dashboard muestran los montos por método de pago correctamente.

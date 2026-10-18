@@ -12,23 +12,35 @@ export const getDashboardData = async (req: Request, res: Response) => {
     const mesActual = lima.mes - 1; // 0-11
     const anioActual = lima.anio;
 
-    const transacciones = await prisma.transaccion.findMany({
-      include: {
-        cliente: true
-      },
-      orderBy: {
-        id: 'desc'
-      }
-    });
+    // Solo los campos necesarios y solo lo que se usa: transacciones del año actual
+    // (las fechas se guardan como texto "DD/MM/YYYY") y las pendientes de cobro de cualquier fecha.
+    // Antes se cargaba toda la historia con sus clientes en memoria en cada visita.
+    const camposTxn = {
+      id: true, numero: true, tipo: true, monto: true, metodoPago: true, concepto: true,
+      categoria: true, estado: true, fecha: true, clienteNombre: true,
+      cliente: { select: { nombre: true } },
+    } as const;
 
+    const [transacciones, recientes] = await Promise.all([
+      prisma.transaccion.findMany({
+        where: { OR: [{ fecha: { endsWith: `/${anioActual}` } }, { estado: 'PENDIENTE', tipo: 'INGRESO' }] },
+        select: camposTxn,
+        orderBy: { id: 'desc' },
+      }),
+      // Últimos movimientos (sin importar el año), para la tarjeta de "últimas transacciones"
+      prisma.transaccion.findMany({ select: camposTxn, orderBy: { id: 'desc' }, take: 12 }),
+    ]);
+
+    // Solo las órdenes terminadas generan alerta de "vehículo listo"
     const guias = await prisma.numeroGuia.findMany({
-      include: {
-        cliente: true,
-        vehiculo: true
+      where: { estado: 'FINALIZADO' },
+      select: {
+        id: true,
+        estado: true,
+        cliente: { select: { nombre: true } },
+        vehiculo: { select: { marca: true, modelo: true, placa: true } },
       },
-      orderBy: {
-        id: 'desc'
-      }
+      orderBy: { id: 'desc' },
     });
 
     const trabajadores = await prisma.trabajador.findMany({
@@ -153,19 +165,6 @@ export const getDashboardData = async (req: Request, res: Response) => {
       const anioTxn = partesFecha?.anio ?? 0;
       const metodo = ETIQUETA_METODO[normalizarMetodoPago(txn.metodoPago)];
 
-      // Últimas transacciones (top 6 global)
-      if (ultimasTxns.length < 6) {
-        ultimasTxns.push({
-          id: txn.numero,
-          cliente: txn.cliente?.nombre || txn.clienteNombre || 'Cliente no registrado',
-          concepto: txn.concepto,
-          metodo: txn.metodoPago,
-          monto: txn.monto,
-          tipo: txn.tipo.toLowerCase(),
-          estado: txn.estado === 'COMPLETADO' ? (isIngreso ? 'Cobrado' : 'Pagado') : (txn.estado.charAt(0) + txn.estado.slice(1).toLowerCase())
-        });
-      }
-
       if (txn.estado === 'PENDIENTE' && isIngreso) {
         porCobrar++;
         contadorPagosPorCobrar++;
@@ -227,6 +226,22 @@ export const getDashboardData = async (req: Request, res: Response) => {
             }
         }
       }
+    }
+
+    // Últimas transacciones (top 6 global, sin el saldo inicial)
+    for (const txn of recientes) {
+      if (ultimasTxns.length >= 6) break;
+      if (esSaldoInicial(txn)) continue;
+      const isIngreso = txn.tipo === 'INGRESO';
+      ultimasTxns.push({
+        id: txn.numero,
+        cliente: txn.cliente?.nombre || txn.clienteNombre || 'Cliente no registrado',
+        concepto: txn.concepto,
+        metodo: txn.metodoPago,
+        monto: txn.monto,
+        tipo: txn.tipo.toLowerCase(),
+        estado: txn.estado === 'COMPLETADO' ? (isIngreso ? 'Cobrado' : 'Pagado') : (txn.estado.charAt(0) + txn.estado.slice(1).toLowerCase())
+      });
     }
 
     // Agregar alerta global de por cobrar (agrupada)

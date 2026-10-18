@@ -1,15 +1,17 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { firmarTokenBoleta } from '../auth/security';
+import { agregarDireccionesMedia, conDireccionMedia, valorMediaParaGuardar } from '../utils/media';
 
 // Obtener productos visibles en la web
 export const getProductosWeb = async (req: Request, res: Response) => {
   try {
     const productos = await prisma.producto.findMany({
       where: { visibleEnWeb: true },
+      select: { id: true, sku: true, nombre: true, descripcion: true, categoria: true, marca: true, precio: true, stockActual: true, stockMinimo: true, visibleEnWeb: true },
       orderBy: { nombre: 'asc' }
     });
-    res.json(productos);
+    res.json(await agregarDireccionesMedia(req, 'producto', 'foto', productos));
   } catch (error) {
     console.error('Error al obtener productos web:', error);
     res.status(500).json({ error: 'Error del servidor.' });
@@ -525,13 +527,17 @@ export const obtenerVentasWeb = async (req: Request, res: Response) => {
 // MÓDULO NOVEDADES (WEB)
 // ==========================================
 
+// Campos de una novedad SIN el archivo (la foto o el video se piden aparte por su dirección)
+const CAMPOS_NOVEDAD = { id: true, titulo: true, descripcion: true, etiqueta: true, videoUrl: true, likes: true, estado: true, fecha: true } as const;
+
 export const obtenerNovedadesWeb = async (req: Request, res: Response) => {
     try {
         const novedades = await prisma.novedad.findMany({
             where: { estado: "ACTIVO" },
+            select: CAMPOS_NOVEDAD,
             orderBy: { fecha: "desc" }
         });
-        res.json(novedades);
+        res.json(await agregarDireccionesMedia(req, 'novedad', 'imagen', novedades));
     } catch (error) {
         console.error("Error al obtener novedades:", error);
         res.status(500).json({ error: "Error del servidor" });
@@ -541,9 +547,10 @@ export const obtenerNovedadesWeb = async (req: Request, res: Response) => {
 export const obtenerTodasNovedadesAdmin = async (req: Request, res: Response) => {
     try {
         const novedades = await prisma.novedad.findMany({
+            select: CAMPOS_NOVEDAD,
             orderBy: { fecha: "desc" }
         });
-        res.json(novedades);
+        res.json(await agregarDireccionesMedia(req, 'novedad', 'imagen', novedades));
     } catch (error) {
         console.error("Error al obtener todas las novedades:", error);
         res.status(500).json({ error: "Error del servidor" });
@@ -563,12 +570,12 @@ export const crearNovedad = async (req: Request, res: Response) => {
                 titulo,
                 descripcion,
                 etiqueta,
-                imagen,
+                imagen: valorMediaParaGuardar(imagen, 'novedad') ?? null,
                 videoUrl,
                 estado: estado || "ACTIVO"
             }
         });
-        res.status(201).json(nuevaNovedad);
+        res.status(201).json(conDireccionMedia(req, 'novedad', 'imagen', nuevaNovedad));
     } catch (error) {
         console.error("Error al crear novedad:", error);
         res.status(500).json({ error: "Error del servidor" });
@@ -586,12 +593,13 @@ export const actualizarNovedad = async (req: Request, res: Response) => {
                 titulo,
                 descripcion,
                 etiqueta,
-                imagen,
+                // La dirección propia del archivo significa "sin cambios"
+                ...(valorMediaParaGuardar(imagen, 'novedad') !== undefined ? { imagen: valorMediaParaGuardar(imagen, 'novedad') } : {}),
                 videoUrl,
                 estado
             }
         });
-        res.json(novedadActualizada);
+        res.json(conDireccionMedia(req, 'novedad', 'imagen', novedadActualizada));
     } catch (error) {
         console.error("Error al actualizar novedad:", error);
         res.status(500).json({ error: "Error del servidor" });
