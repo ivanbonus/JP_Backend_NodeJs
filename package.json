@@ -20,7 +20,8 @@
     "test:caja": "node --test --test-concurrency=1 tests/fase1.caja.test.mjs",
     "test:bancos": "node --test --test-concurrency=1 tests/fase2a.bancos.test.mjs",
     "test:conciliacion": "node --test --test-concurrency=1 tests/fase2b.conciliacion.test.mjs",
-    "test:cobros": "node --test --test-concurrency=1 tests/fase2c.cobros.test.mjs"
+    "test:cobros": "node --test --test-concurrency=1 tests/fase2c.cobros.test.mjs",
+    "test:compras": "node --test --test-concurrency=1 tests/fase3.compras.test.mjs"
   },
   "keywords": [],
   "author": "",

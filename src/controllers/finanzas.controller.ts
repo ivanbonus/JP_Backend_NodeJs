@@ -165,6 +165,9 @@ const anularInterno = async (id: number, motivo: string | null) => {
     const pagosActivos = await tx.transaccion.count({ where: { ventaId: id, estado: 'COMPLETADO' } });
     if (pagosActivos) throw new ErrorCobro(`La venta tiene ${pagosActivos} pago(s) registrados: anúlalos primero.`, 409);
 
+    const aplicadoAFacturas = await tx.asignacionPago.count({ where: { transaccionId: id, estado: 'ACTIVA' } });
+    if (aplicadoAFacturas) throw new ErrorCobro(`Este egreso está aplicado a ${aplicadoAFacturas} factura(s) de compra: quítalo de ellas primero (Compras → Cuentas por pagar).`, 409);
+
     const avisos: string[] = [];
     // Un pedido web anulado antes de confirmarse devuelve el stock reservado
     if (txn.estado === 'POR_VERIFICAR') await devolverStockPedidoWeb(tx, txn.numero);
@@ -239,6 +242,14 @@ export const updateTransaccion = async (req: Request, res: Response) => {
     if (txn.estado === 'POR_VERIFICAR' && cambia(estado, txn.estado)) {
       res.status(409).json({ error: 'Es un pedido web: usa «Verificar pago» para confirmarlo o rechazarlo.' });
       return;
+    }
+    // Un egreso aplicado a facturas de compra no puede quedar por debajo de lo aplicado
+    if (txn.tipo === 'EGRESO' && cambia(monto, txn.monto)) {
+      const aplicado = Number((await prisma.asignacionPago.aggregate({ where: { transaccionId: txn.id, estado: 'ACTIVA' }, _sum: { montoPen: true } }))._sum.montoPen ?? 0);
+      if (Number(monto) < aplicado - 0.005) {
+        res.status(409).json({ error: `Este egreso tiene S/ ${aplicado.toFixed(2)} aplicados a facturas de compra: el monto no puede ser menor.` });
+        return;
+      }
     }
     if ((estado === 'PARCIAL' || estado === 'POR_VERIFICAR') && estado !== txn.estado) {
       res.status(400).json({ error: 'Ese estado lo asignan los cobros y la tienda web.' });

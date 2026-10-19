@@ -16,6 +16,7 @@ import { auditarCambios } from '../auth/auditoria';
 import { listarAuditoria } from '../controllers/auditoria.controller';
 import { servirMedia } from '../utils/media';
 import bancosRoutes from './bancos.routes';
+import comprasRoutes from './compras.routes';
 import { abrirArchivoLocal } from '../storage/almacenamiento';
 
 const router = Router();
@@ -47,6 +48,7 @@ router.use('/personal', soloAdmin, auditarCambios('personal'), personalRoutes);
 router.use('/configuracion', soloAdmin, auditarCambios('configuracion'), configuracionRoutes);
 router.use('/usuarios', auditarCambios('usuarios'), usuariosRoutes);
 router.use('/bancos', panelOperativo, auditarCambios('bancos'), bancosRoutes);
+router.use('/compras', panelOperativo, auditarCambios('compras'), comprasRoutes);
 router.get('/auditoria', soloAdmin, listarAuditoria);
 
 export default router;

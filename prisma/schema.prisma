@@ -185,6 +185,7 @@ model Producto {
   visibleEnWeb   Boolean   @default(false)
 
   movimientos    MovimientoInventario[]
+  detallesCompra DetalleCompra[]
 }
 
 model MovimientoInventario {
@@ -243,6 +244,7 @@ model Transaccion {
   venta          Transaccion?  @relation("PagosDeVenta", fields: [ventaId], references: [id])
   pagos          Transaccion[] @relation("PagosDeVenta")
   movimientosBancarios MovimientoBancario[]
+  asignacionesCompra AsignacionPago[] // pagos a proveedores: a qué facturas se aplicó este egreso
 
   @@index([ventaId])
   @@index([estado])
@@ -573,4 +575,131 @@ model LineaExtracto {
   @@unique([cuentaId, huella])
   @@index([cuentaId, estado])
   @@index([cuentaId, fecha])
+}
+
+// ==========================================
+// Fase 3: Compras, proveedores y cuentas por pagar
+// ==========================================
+
+model Proveedor {
+  id              Int       @id @default(autoincrement())
+  tipoDocumento   String    @default("RUC") // RUC, DNI
+  ruc             String    @unique // RUC (11 dígitos) o DNI
+  razonSocial     String
+  nombreComercial String?
+  direccion       String?
+  telefono        String?
+  email           String?
+  contacto        String?
+  diasCredito     Int       @default(0) // plazo habitual para calcular el vencimiento
+  cuentaBancaria  String?   // cuenta/CCI del proveedor para transferirle
+  observaciones   String?
+  activo          Boolean   @default(true)
+  creadoEn        DateTime  @default(now())
+  actualizadoEn   DateTime  @updatedAt
+
+  documentos      DocumentoCompra[]
+}
+
+model DocumentoCompra {
+  id                Int       @id @default(autoincrement())
+  codigo            String    @unique // CP-2026-000001 (ID interno)
+  tipo              String    // FACTURA, BOLETA, RECIBO_HONORARIOS, TICKET, OTRO
+  serie             String
+  numero            String    // correlativo sin ceros a la izquierda
+  proveedorId       Int
+  rucEmisor         String
+  razonSocialEmisor String
+  fechaEmision      DateTime
+  fechaVencimiento  DateTime?
+  moneda            String    @default("PEN") // PEN, USD
+  tipoCambio        Decimal?  @db.Decimal(10, 4)
+  baseImponible     Decimal   @db.Decimal(14, 2)
+  igv               Decimal   @db.Decimal(14, 2)
+  otrosTributos     Decimal   @default(0) @db.Decimal(14, 2)
+  descuentos        Decimal   @default(0) @db.Decimal(14, 2)
+  total             Decimal   @db.Decimal(14, 2)
+  totalPen          Decimal   @db.Decimal(14, 2) // equivalente en soles (reportes)
+  condicionPago     String    @default("CONTADO") // CONTADO, CREDITO
+
+  // Revisión administrativa de los datos registrados
+  estadoRevision    String    @default("PENDIENTE") // PENDIENTE, REVISADO, OBSERVADO
+  notaRevision      String?
+  revisadoPor       String?
+  revisadoEn        DateTime?
+
+  // El estado de pago se recalcula siempre desde las asignaciones válidas (nunca se escribe a mano)
+  estadoPago        String    @default("PENDIENTE") // PENDIENTE, PARCIAL, PAGADO (VENCIDO se calcula por fecha)
+  estadoRecepcion   String    @default("PENDIENTE") // PENDIENTE, PARCIAL, RECIBIDO, NO_APLICA
+
+  entregadoContabilidad    Boolean   @default(false)
+  entregadoContabilidadEn  DateTime?
+  entregadoContabilidadPor String?
+
+  origen            String    @default("MANUAL") // MANUAL, FOTO, XML, PDF
+  observaciones     String?
+  intentosDuplicado Int       @default(0) // veces que se intentó registrar de nuevo
+
+  estado            String    @default("ACTIVO") // ACTIVO, ANULADO
+  anuladoPor        String?
+  anuladoEn         DateTime?
+  motivoAnulacion   String?
+
+  registradoPor     String
+  creadoEn          DateTime  @default(now())
+  actualizadoEn     DateTime  @updatedAt
+
+  proveedor         Proveedor        @relation(fields: [proveedorId], references: [id])
+  detalles          DetalleCompra[]
+  asignaciones      AsignacionPago[]
+
+  @@unique([tipo, rucEmisor, serie, numero]) // un comprobante no se registra dos veces
+  @@index([proveedorId])
+  @@index([fechaEmision])
+  @@index([estadoPago])
+}
+
+model DetalleCompra {
+  id               Int      @id @default(autoincrement())
+  documentoId      Int
+  orden            Int
+  codigoProveedor  String?  // código del producto en el comprobante del proveedor
+  descripcion      String
+  unidad           String   @default("UND")
+  cantidad         Decimal  @db.Decimal(14, 4)
+  valorUnitario    Decimal  @db.Decimal(14, 6) // sin IGV
+  descuento        Decimal  @default(0) @db.Decimal(14, 2)
+  afectoIgv        Boolean  @default(true)
+  igv              Decimal  @db.Decimal(14, 2)
+  total            Decimal  @db.Decimal(14, 2) // con IGV
+  productoId       Int?     // producto del inventario (opcional)
+  cantidadRecibida Decimal  @default(0) @db.Decimal(14, 4) // recepción de mercadería (Fase 5)
+
+  documento        DocumentoCompra @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  producto         Producto?       @relation(fields: [productoId], references: [id])
+
+  @@index([documentoId])
+  @@index([productoId])
+}
+
+// Relación muchos a muchos entre pagos y facturas: una factura puede pagarse con varias
+// transferencias y una transferencia puede cancelar varias facturas (también pagos parciales).
+model AsignacionPago {
+  id            Int       @id @default(autoincrement())
+  documentoId   Int
+  transaccionId Int       // egreso que registra el pago (en caja y, si aplica, en el banco)
+  monto         Decimal   @db.Decimal(14, 2) // en la moneda del documento
+  montoPen      Decimal   @db.Decimal(14, 2) // equivalente en soles (lo que se descuenta del egreso)
+  fecha         DateTime  @default(now())
+  responsable   String
+  estado        String    @default("ACTIVA") // ACTIVA, ANULADA
+  anuladaPor    String?
+  anuladaEn     DateTime?
+  motivoAnulacion String?
+
+  documento     DocumentoCompra @relation(fields: [documentoId], references: [id])
+  transaccion   Transaccion     @relation(fields: [transaccionId], references: [id])
+
+  @@index([documentoId, estado])
+  @@index([transaccionId, estado])
 }
