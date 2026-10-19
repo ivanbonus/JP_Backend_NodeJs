@@ -21,6 +21,8 @@ export const iniciarBaseLocal = async (databaseUrl, dataDir = DATA_DIR) => {
         password: decodeURIComponent(url.password),
         port: Number(url.port),
         persistent: true,
+        // Igual que producción (Neon): UTF-8, sin depender del idioma de Windows
+        initdbFlags: ['--encoding=UTF8', '--locale=C'],
         onLog: () => {},
         onError: () => {},
     });

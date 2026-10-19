@@ -17,18 +17,25 @@
     "admin:2fa:reset": "node dist/scripts/reset2FA.js",
     "admin:2fa:reset:dev": "ts-node --transpile-only src/scripts/reset2FA.ts",
     "test:fase1": "node --test --test-concurrency=1 tests/fase1.seguridad.test.mjs",
-    "test:caja": "node --test --test-concurrency=1 tests/fase1.caja.test.mjs"
+    "test:caja": "node --test --test-concurrency=1 tests/fase1.caja.test.mjs",
+    "test:bancos": "node --test --test-concurrency=1 tests/fase2a.bancos.test.mjs",
+    "test:conciliacion": "node --test --test-concurrency=1 tests/fase2b.conciliacion.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/lib-storage": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@prisma/client": "^5.22.0",
     "@types/pdfkit": "^0.17.5",
     "bcryptjs": "^3.0.3",
+    "busboy": "^1.6.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
@@ -39,6 +46,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.5",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",

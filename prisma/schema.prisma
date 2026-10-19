@@ -33,6 +33,7 @@ model Cliente {
   guias          NumeroGuia[]
   citas          Cita[]
   transacciones  Transaccion[]
+  movimientosBancarios MovimientoBancario[]
 }
 
 model Cotizacion {
@@ -101,6 +102,7 @@ model NumeroGuia {
   movimientosInventario MovimientoInventario[]
   transacciones  Transaccion[]
   detalles       GuiaDetalle[]
+  movimientosBancarios MovimientoBancario[]
 }
 
 model Cita {
@@ -226,6 +228,7 @@ model Transaccion {
   cliente        Cliente?  @relation(fields: [clienteId], references: [id])
   numeroGuia     NumeroGuia? @relation(fields: [numeroGuiaId], references: [id])
   cierreCaja     CierreCaja? @relation(fields: [cierreCajaId], references: [id])
+  movimientosBancarios MovimientoBancario[]
 }
 
 model CierreCaja {
@@ -277,6 +280,9 @@ model Configuracion {
   notifEmail        Boolean  @default(true)
   notifSMS          Boolean  @default(false)
   notifApp          Boolean  @default(true)
+
+  // Control bancario: operaciones mayores a este monto (en soles) requieren revisión administrativa
+  umbralRevision    Decimal  @default(2000) @db.Decimal(14, 2)
 }
 
 // ==========================================
@@ -404,4 +410,150 @@ model Auditoria {
   @@index([fecha])
   @@index([entidad, entidadId])
   @@index([accion])
+}
+
+// ==========================================
+// FASE 2: CONTROL BANCARIO
+// ==========================================
+model CuentaBancaria {
+  id                Int       @id @default(autoincrement())
+  banco             String    // "BCP"
+  nombre            String    // alias, p. ej. "BCP Soles principal"
+  tipo              String    @default("CORRIENTE") // CORRIENTE, AHORROS, BILLETERA
+  numero            String?   // número de cuenta (se muestra enmascarado)
+  cci               String?
+  moneda            String    @default("PEN") // PEN, USD
+  saldoInicial      Decimal   @default(0) @db.Decimal(14, 2)
+  fechaSaldoInicial DateTime?
+  activa            Boolean   @default(true)
+  creadoEn          DateTime  @default(now())
+  mapeoExtracto     Json?     // columnas del extracto recordadas para la próxima importación
+
+  movimientos       MovimientoBancario[]
+  extractos         ExtractoBancario[]
+
+  @@unique([banco, numero])
+}
+
+model MovimientoBancario {
+  id                Int       @id @default(autoincrement())
+  codigo            String    @unique // MB-2026-000123
+  fecha             DateTime  // fecha y hora de la operación
+  tipo              String    // INGRESO, EGRESO
+  cuentaId          Int
+  metodo            String    // TRANSFERENCIA, DEPOSITO, YAPE, PLIN, TARJETA, CHEQUE, OTRO
+  contraparteNombre String?
+  contraparteDoc    String?   // DNI o RUC
+  clienteId         Int?
+  monto             Decimal   @db.Decimal(14, 2)
+  moneda            String    // PEN, USD (la de la cuenta)
+  tipoCambio        Decimal?  @db.Decimal(10, 4)
+  montoPen          Decimal   @db.Decimal(14, 2) // equivalente en soles (umbral y reportes)
+  numeroOperacion   String?
+  concepto          String
+  categoria         String    @default("Otros")
+  transaccionId     Int?      // venta o egreso ya registrado (no se duplica el ingreso)
+  numeroGuiaId      Int?
+  referenciaTexto   String?   // factura u otra referencia libre
+  responsable       String    // quién lo registró
+  observaciones     String?
+  estado            String    @default("PENDIENTE") // PENDIENTE, CONCILIADO, DIFERENCIA, SIN_IDENTIFICAR, REQUIERE_REVISION, ANULADO
+  fechaConciliacion DateTime?
+
+  // Revisión administrativa (montoPen > umbral)
+  requiereRevision  Boolean   @default(false)
+  revisionEstado    String?   // PENDIENTE, REVISADO, OBSERVADO
+  revisadoPor       String?
+  revisadoEn        DateTime?
+  notaRevision      String?
+
+  // Anulación (las operaciones financieras no se eliminan)
+  anuladoPor        String?
+  anuladoEn         DateTime?
+  motivoAnulacion   String?
+
+  creadoEn          DateTime  @default(now())
+  actualizadoEn     DateTime  @updatedAt
+
+  cuenta            CuentaBancaria @relation(fields: [cuentaId], references: [id])
+  cliente           Cliente?       @relation(fields: [clienteId], references: [id])
+  transaccion       Transaccion?   @relation(fields: [transaccionId], references: [id])
+  numeroGuia        NumeroGuia?    @relation(fields: [numeroGuiaId], references: [id])
+  lineaExtracto     LineaExtracto?
+
+  @@unique([cuentaId, numeroOperacion]) // el mismo n.º de operación no se registra dos veces en una cuenta
+  @@index([fecha])
+  @@index([estado])
+  @@index([requiereRevision, revisionEstado])
+  @@index([transaccionId])
+}
+
+// Archivos privados (comprobantes, facturas…) guardados en Backblaze B2 (o en disco local en desarrollo)
+model Archivo {
+  id             Int      @id @default(autoincrement())
+  clave          String   @unique // ruta dentro del almacenamiento
+  nombre         String   // nombre original
+  mime           String
+  tamano         Int
+  sha256         String
+  almacenamiento String   // local, s3
+  entidad        String   // movimiento_bancario, …
+  entidadId      Int
+  subidoPor      String
+  subidoEn       DateTime @default(now())
+  eliminado      Boolean  @default(false)
+  eliminadoPor   String?
+  eliminadoEn    DateTime?
+
+  @@index([entidad, entidadId])
+  @@index([sha256])
+}
+
+// ==========================================
+// FASE 2B: CONCILIACIÓN CON EXTRACTOS
+// ==========================================
+model ExtractoBancario {
+  id             Int      @id @default(autoincrement())
+  cuentaId       Int
+  nombreArchivo  String
+  archivoId      Int?     // archivo original guardado en el almacenamiento
+  sha256         String   // huella del archivo: el mismo extracto no se importa dos veces
+  desde          DateTime?
+  hasta          DateTime?
+  lineasTotales  Int      @default(0)
+  lineasNuevas   Int      @default(0)
+  lineasRepetidas Int     @default(0)
+  importadoPor   String
+  importadoEn    DateTime @default(now())
+
+  cuenta         CuentaBancaria @relation(fields: [cuentaId], references: [id])
+  lineas         LineaExtracto[]
+
+  @@unique([cuentaId, sha256])
+}
+
+model LineaExtracto {
+  id              Int       @id @default(autoincrement())
+  extractoId      Int
+  cuentaId        Int
+  fecha           DateTime
+  descripcion     String
+  tipo            String    // INGRESO (abono), EGRESO (cargo)
+  monto           Decimal   @db.Decimal(14, 2) // siempre positivo
+  numeroOperacion String?
+  saldo           Decimal?  @db.Decimal(14, 2)
+  huella          String    // identifica la línea aunque venga en otro extracto que se solapa
+  estado          String    @default("PENDIENTE") // PENDIENTE, CONCILIADO, DIFERENCIA, SIN_IDENTIFICAR, IGNORADO
+  movimientoId    Int?      @unique
+  conciliadoPor   String?
+  conciliadoEn    DateTime?
+  formaConciliacion String? // AUTOMATICA, MANUAL
+  notaConciliacion String?
+
+  extracto        ExtractoBancario    @relation(fields: [extractoId], references: [id])
+  movimiento      MovimientoBancario? @relation(fields: [movimientoId], references: [id])
+
+  @@unique([cuentaId, huella])
+  @@index([cuentaId, estado])
+  @@index([cuentaId, fecha])
 }
