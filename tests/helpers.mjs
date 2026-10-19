@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { iniciarBaseLocal, detenerBaseLocal } from './db-local.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ENV_FILE = process.env.ENV_FILE || '.env.test';
+// Siempre .env.test: se ignora un ENV_FILE que haya quedado en la terminal (p. ej. el de producción)
+const ENV_FILE = '.env.test';
 
 /** Lee el archivo .env.test sin depender de librerías */
 export const leerEnv = () => {
