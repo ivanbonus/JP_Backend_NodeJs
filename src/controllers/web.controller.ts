@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { firmarTokenBoleta } from '../auth/security';
+import { hoyLima, horaLima } from '../utils/fechas';
+import { siguienteCorrelativo } from '../utils/caja';
 import { agregarDireccionesMedia, conDireccionMedia, valorMediaParaGuardar } from '../utils/media';
 
 // Obtener productos visibles en la web
@@ -400,110 +402,143 @@ export const actualizarEstadoPostulacion = async (req: Request, res: Response) =
 // VENTAS WEB (TIENDA ONLINE)
 // ==========================================
 
+class ErrorPedido extends Error {}
+
+const METODOS_WEB = ['Efectivo', 'Transferencia', 'Yape/Plin'];
+
+/**
+ * Pedido de la tienda web. Queda POR_VERIFICAR: no es un ingreso hasta que el administrador
+ * confirme que el dinero llegó (Finanzas → Verificar pago). Los precios y el stock se toman
+ * de la base de datos, nunca de lo que envía el navegador. El stock se reserva al pedir y se
+ * devuelve si el pedido se rechaza.
+ */
 export const registrarVentaWeb = async (req: Request, res: Response) => {
   try {
-    const { clienteNombre, clienteDoc, metodoPago, monto, productos } = req.body;
+    const { clienteNombre, clienteDoc, metodoPago, productos, operacionCliente } = req.body || {};
 
-    console.log('[WEB-VENTA] Body recibido:', JSON.stringify({ clienteNombre, clienteDoc, metodoPago, monto, productos }));
+    const nombre = typeof clienteNombre === 'string' ? clienteNombre.trim().slice(0, 120) : '';
+    if (!nombre || !Array.isArray(productos) || productos.length === 0 || productos.length > 30) {
+      res.status(400).json({ error: 'Faltan datos obligatorios para el pedido.' });
+      return;
+    }
+    if (!METODOS_WEB.includes(metodoPago)) {
+      res.status(400).json({ error: 'Elige un método de pago válido.' });
+      return;
+    }
+    const documento = typeof clienteDoc === 'string' ? clienteDoc.trim().slice(0, 15) : '';
+    const operacion = typeof operacionCliente === 'string' ? operacionCliente.replace(/\s/g, '').slice(0, 40) || null : null;
 
-    if (!clienteNombre || !monto || !productos || productos.length === 0) {
-      res.status(400).json({ error: 'Faltan datos obligatorios para la venta.' });
+    // Cantidades por producto (sumando repetidos)
+    const cantidades = new Map<number, number>();
+    for (const p of productos) {
+      const id = Number(p?.id);
+      const cantidad = Number(p?.cantidad);
+      if (!Number.isInteger(id) || !Number.isInteger(cantidad) || cantidad < 1 || cantidad > 99) {
+        res.status(400).json({ error: 'Hay un producto o una cantidad no válida en el pedido.' });
+        return;
+      }
+      cantidades.set(id, (cantidades.get(id) || 0) + cantidad);
+    }
+
+    const catalogo = await prisma.producto.findMany({
+      where: { id: { in: [...cantidades.keys()] }, visibleEnWeb: true },
+      select: { id: true, nombre: true, precio: true, stockActual: true },
+    });
+    if (catalogo.length !== cantidades.size) {
+      res.status(400).json({ error: 'Algún producto ya no está disponible en la tienda. Actualiza la página.' });
+      return;
+    }
+    const items = catalogo.map(p => ({ id: p.id, nombre: p.nombre, precio: p.precio, cantidad: cantidades.get(p.id)! }));
+    const total = Math.round(items.reduce((s, i) => s + i.precio * i.cantidad, 0) * 100) / 100;
+    if (total <= 0) {
+      res.status(400).json({ error: 'El pedido no tiene un total válido.' });
       return;
     }
 
-    // 1. Generar correlativo
-    let nuevoNumero = 'WEB-001';
-    const ultima = await prisma.transaccion.findFirst({
-      where: { numero: { startsWith: 'WEB-' } },
-      orderBy: { id: 'desc' }
-    });
-    if (ultima) {
-      const parts = ultima.numero.split('-');
-      const numActual = parseInt(parts[1] || '0');
-      nuevoNumero = `WEB-${String(numActual + 1).padStart(3, '0')}`;
-    }
-    console.log('[WEB-VENTA] NÃºmero asignado:', nuevoNumero);
+    let nuevaVenta: any = null;
+    for (let intento = 0; intento < 5 && !nuevaVenta; intento++) {
+      try {
+        nuevaVenta = await prisma.$transaction(async tx => {
+          const existentes = await tx.transaccion.findMany({ where: { numero: { startsWith: 'WEB-' } }, select: { numero: true } });
+          const numero = siguienteCorrelativo('WEB', existentes.map(e => e.numero));
 
-    // 2. Crear transacciÃ³n
-    const hoy = new Date();
-    const fechaStr = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
-    const horaStr = `${String(hoy.getHours()).padStart(2, '0')}:${String(hoy.getMinutes()).padStart(2, '0')}`;
+          // Reserva de stock: solo si alcanza (evita stock negativo con compras simultáneas)
+          for (const i of items) {
+            const r = await tx.producto.updateMany({
+              where: { id: i.id, stockActual: { gte: i.cantidad } },
+              data: { stockActual: { decrement: i.cantidad } },
+            });
+            if (r.count === 0) throw new ErrorPedido(`No hay stock suficiente de «${i.nombre}».`);
+            await tx.movimientoInventario.create({
+              data: { productoId: i.id, tipo: 'SALIDA', cantidad: i.cantidad, motivo: `VENTA_WEB #${numero}` },
+            });
+          }
 
-    const nuevaVenta = await prisma.transaccion.create({
-      data: {
-        numero: nuevoNumero,
-        tipo: 'INGRESO',
-        monto: parseFloat(String(monto)),
-        metodoPago: metodoPago || 'Efectivo',
-        concepto: `Venta Online #${nuevoNumero}`,
-        categoria: 'Venta Online',
-        fecha: fechaStr,
-        hora: horaStr,
-        clienteNombre,
-        nota: `DNI/RUC: ${clienteDoc || 'S/D'}\nDETALLES:${JSON.stringify(
-          productos.map((p: any) => ({ cantidad: p.cantidad, nombre: p.nombre, precio: p.precio }))
-        )}`,
-        estado: 'COMPLETADO'
+          return tx.transaccion.create({
+            data: {
+              numero,
+              tipo: 'INGRESO',
+              monto: total,
+              metodoPago,
+              concepto: `Venta Online #${numero}`,
+              categoria: 'Venta Online',
+              fecha: hoyLima(),
+              hora: horaLima(),
+              clienteNombre: nombre,
+              operacionCliente: operacion,
+              nota: `DNI/RUC: ${documento || 'S/D'}\nDETALLES:${JSON.stringify(items.map(i => ({ id: i.id, cantidad: i.cantidad, nombre: i.nombre, precio: i.precio })))}`,
+              estado: 'POR_VERIFICAR',
+            },
+          });
+        });
+      } catch (e: any) {
+        if (e instanceof ErrorPedido) {
+          res.status(409).json({ error: e.message });
+          return;
+        }
+        if (e?.code !== 'P2002') throw e; // número repetido por otro pedido simultáneo: se reintenta
       }
-    });
-    console.log('[WEB-VENTA] TransacciÃ³n creada, ID:', nuevaVenta.id);
+    }
+    if (!nuevaVenta) {
+      res.status(409).json({ error: 'No se pudo registrar el pedido, intenta nuevamente.' });
+      return;
+    }
 
-    // NOTIFICACIÃ“N AL ADMIN
-    try {
+    // Aviso al administrador en segundo plano (el cliente no espera al correo)
+    void (async () => {
+     try {
       const config = await prisma.configuracion.findFirst();
       if (config && config.email) {
         await sendEmail({
           to: config.email,
-          subject: 'Â¡Nueva Venta Online Registrada! #' + nuevoNumero,
-          text: `Se ha registrado una nueva venta online por un valor de S/ ${monto}.`,
+          subject: `Nuevo pedido web por verificar #${nuevaVenta.numero}`,
+          text: `Pedido ${nuevaVenta.numero} de ${nombre} por S/ ${total.toFixed(2)} (${metodoPago}). Verifica el pago en Finanzas antes de entregarlo.`,
           html: `
-            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #22c55e; border-radius: 8px;">
-              <h2 style="color: #22c55e; margin-top: 0;">Nueva Venta Lograda</h2>
-              <p>Se ha confirmado una compra desde la tienda online:</p>
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #f59e0b; border-radius: 8px;">
+              <h2 style="color: #d97706; margin-top: 0;">Nuevo pedido web por verificar</h2>
               <ul style="list-style: none; padding: 0;">
-                <li><strong>Venta:</strong> #${nuevoNumero}</li>
-                <li><strong>Cliente:</strong> ${clienteNombre}</li>
-                <li><strong>Monto Total:</strong> S/ ${monto}</li>
-                <li><strong>MÃ©todo:</strong> ${metodoPago}</li>
+                <li><strong>Pedido:</strong> #${nuevaVenta.numero}</li>
+                <li><strong>Cliente:</strong> ${nombre.replace(/[<>&]/g, '')}</li>
+                <li><strong>Total:</strong> S/ ${total.toFixed(2)}</li>
+                <li><strong>Método:</strong> ${metodoPago}</li>
+                ${operacion ? `<li><strong>N.º de operación informado:</strong> ${operacion.replace(/[<>&]/g, '')}</li>` : ''}
               </ul>
-              <p>Verifica el pedido en la secciÃ³n de Ventas & Boletas.</p>
+              <p>Confirma que el dinero llegó (Finanzas → Ventas → Verificar pago) antes de entregar el pedido.</p>
             </div>
           `
         });
       }
-    } catch (err) {
-      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre venta web:', err);
-    }
+     } catch (err) {
+      console.error('[ADMIN-NOTIFICACION] Error al avisar sobre pedido web:', err);
+     }
+    })();
 
-    // 3. Descontar stock (no bloquea la venta si falla)
-    for (const p of productos) {
-      try {
-        const pid = parseInt(String(p.id));
-        const qty = parseInt(String(p.cantidad));
-        if (isNaN(pid) || isNaN(qty)) continue;
-
-        await prisma.producto.update({
-          where: { id: pid },
-          data: { stockActual: { decrement: qty } }
-        });
-
-        await prisma.movimientoInventario.create({
-          data: {
-            productoId: pid,
-            tipo: 'SALIDA',
-            cantidad: qty,
-            motivo: `VENTA_WEB #${nuevoNumero}`,
-            fecha: hoy
-          }
-        });
-        console.log('[WEB-VENTA] Stock descontado para producto:', pid);
-      } catch (stockError: any) {
-        console.error('[WEB-VENTA] Error descontando stock del producto', p.id, ':', stockError.message);
-      }
-    }
-
-    // Token temporal para que el comprador descargue su boleta sin iniciar sesión
-    res.status(201).json({ ...nuevaVenta, boletaToken: firmarTokenBoleta(nuevaVenta.id) });
+    // Token temporal para que el comprador descargue su comprobante de pedido sin iniciar sesión
+    res.status(201).json({
+      id: nuevaVenta.id, numero: nuevaVenta.numero, monto: nuevaVenta.monto, metodoPago: nuevaVenta.metodoPago,
+      estado: nuevaVenta.estado, fecha: nuevaVenta.fecha, hora: nuevaVenta.hora,
+      boletaToken: firmarTokenBoleta(nuevaVenta.id),
+    });
   } catch (error: any) {
     console.error('[WEB-VENTA] ERROR GENERAL:', error);
     res.status(500).json({ error: 'Error del servidor al procesar la compra.' });

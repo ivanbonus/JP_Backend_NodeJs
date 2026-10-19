@@ -17,13 +17,15 @@ export const getDashboardData = async (req: Request, res: Response) => {
     // Antes se cargaba toda la historia con sus clientes en memoria en cada visita.
     const camposTxn = {
       id: true, numero: true, tipo: true, monto: true, metodoPago: true, concepto: true,
-      categoria: true, estado: true, fecha: true, clienteNombre: true,
+      categoria: true, estado: true, fecha: true, clienteNombre: true, pagoEnPartes: true,
       cliente: { select: { nombre: true } },
+      // Lo ya cobrado de las ventas pagadas en partes (para el saldo por cobrar)
+      pagos: { where: { estado: 'COMPLETADO' }, select: { monto: true } },
     } as const;
 
     const [transacciones, recientes] = await Promise.all([
       prisma.transaccion.findMany({
-        where: { OR: [{ fecha: { endsWith: `/${anioActual}` } }, { estado: 'PENDIENTE', tipo: 'INGRESO' }] },
+        where: { OR: [{ fecha: { endsWith: `/${anioActual}` } }, { estado: { in: ['PENDIENTE', 'PARCIAL', 'POR_VERIFICAR'] }, tipo: 'INGRESO' }] },
         select: camposTxn,
         orderBy: { id: 'desc' },
       }),
@@ -151,6 +153,7 @@ export const getDashboardData = async (req: Request, res: Response) => {
         });
     }
 
+    let pedidosPorVerificar = 0;
     for (const txn of transacciones) {
       // El saldo/fondo inicial de caja NO es un ingreso: no entra en KPIs, gráficas ni distribuciones
       if (esSaldoInicial(txn)) continue;
@@ -170,6 +173,17 @@ export const getDashboardData = async (req: Request, res: Response) => {
         contadorPagosPorCobrar++;
         montoPagosPorCobrar += txn.monto;
       }
+      // Venta pagada en partes: queda por cobrar solo el saldo
+      if (txn.estado === 'PARCIAL' && isIngreso) {
+        const cobrado = txn.pagos.reduce((s, p) => s + p.monto, 0);
+        porCobrar++;
+        contadorPagosPorCobrar++;
+        montoPagosPorCobrar += Math.max(0, txn.monto - cobrado);
+      }
+      if (txn.estado === 'POR_VERIFICAR' && isIngreso) pedidosPorVerificar++;
+
+      // Una venta pagada en partes NO es ingreso: lo son sus pagos (cada uno en su fecha)
+      if (txn.pagoEnPartes) continue;
 
       // Cálculos mensuales (año actual)
       if (partesFecha && anioTxn === anioActual && txn.estado === 'COMPLETADO') {
@@ -240,7 +254,21 @@ export const getDashboardData = async (req: Request, res: Response) => {
         metodo: txn.metodoPago,
         monto: txn.monto,
         tipo: txn.tipo.toLowerCase(),
-        estado: txn.estado === 'COMPLETADO' ? (isIngreso ? 'Cobrado' : 'Pagado') : (txn.estado.charAt(0) + txn.estado.slice(1).toLowerCase())
+        estado: txn.estado === 'COMPLETADO' ? (isIngreso ? 'Cobrado' : 'Pagado')
+          : txn.estado === 'POR_VERIFICAR' ? 'Por verificar'
+          : (txn.estado.charAt(0) + txn.estado.slice(1).toLowerCase())
+      });
+    }
+
+    // Pedidos de la tienda web cuyo pago aún no se confirmó
+    if (pedidosPorVerificar > 0) {
+      alertasBackend.unshift({
+        key: 'pedidos-web-por-verificar',
+        tipo: 'venta',
+        color: 'orange',
+        titulo: 'Pedidos web por verificar',
+        desc: `${pedidosPorVerificar} pedido(s) de la tienda esperan que confirmes el pago.`,
+        leida: false
       });
     }
 

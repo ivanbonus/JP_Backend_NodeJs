@@ -21,6 +21,20 @@ export const leerEnv = () => {
 };
 
 export const env = leerEnv();
+
+// `npm run dev:pruebas` (para probar en el navegador) usa los puertos de .env.test (3100 y 5433).
+// La suite automática usa los suyos (3101 y 5435) y otra carpeta de datos, así puede correr
+// mientras el entorno de pruebas está encendido sin reiniciar sus datos.
+const MODO_DEV = process.env.JP_DEV_PRUEBAS === '1';
+const DATA_DIR = path.join(ROOT, MODO_DEV ? '.pgdata-test' : '.pgdata-suite');
+if (!MODO_DEV) {
+    env.PORT = '3101';
+    const u = new URL(env.DATABASE_URL);
+    if (['localhost', '127.0.0.1', '::1'].includes(u.hostname)) {
+        u.port = '5435';
+        env.DATABASE_URL = u.toString();
+    }
+}
 export const BASE = `http://localhost:${env.PORT || 3100}/api`;
 
 /** Protección: jamás ejecutar pruebas contra una base que no sea local */
@@ -36,10 +50,21 @@ const assertBaseLocal = () => {
     }
 };
 
-/** Enciende el PostgreSQL portátil (puerto de .env.test) */
+/** Falla si ya hay un servidor en el puerto (antes de tocar ninguna base) */
+const exigirPuertoLibre = async () => {
+    try {
+        await fetch(BASE.replace(/\/api$/, '/'), { signal: AbortSignal.timeout(1500) });
+    } catch {
+        return; // puerto libre
+    }
+    throw new Error(`El puerto ${env.PORT} ya está en uso por otro servidor. Detenlo antes de continuar.`);
+};
+
+/** Enciende el PostgreSQL portátil */
 export const encenderBase = async () => {
     assertBaseLocal();
-    await iniciarBaseLocal(env.DATABASE_URL);
+    await exigirPuertoLibre();
+    await iniciarBaseLocal(env.DATABASE_URL, DATA_DIR);
 };
 export const apagarBase = () => detenerBaseLocal();
 
@@ -56,18 +81,11 @@ export const resetearBase = () => {
 /** Arranca el servidor con .env.test y espera a que responda */
 export const iniciarServidor = async () => {
     assertBaseLocal();
-    // Si ya hay algo escuchando en el puerto (p. ej. `npm run dev:pruebas` encendido), las pruebas
-    // terminarían usando ese servidor con otros datos: mejor detenerse con un aviso claro.
-    try {
-        await fetch(BASE.replace(/\/api$/, '/'), { signal: AbortSignal.timeout(1500) });
-        throw new Error(`El puerto ${env.PORT || 3100} ya está en uso. Detén "npm run dev:pruebas" u otro servidor antes de ejecutar las pruebas.`);
-    } catch (e) {
-        if (e instanceof Error && e.message.startsWith('El puerto')) throw e;
-        /* puerto libre: continuar */
-    }
+    // Si ya hay algo escuchando en el puerto, las pruebas usarían ese servidor con otros datos
+    await exigirPuertoLibre();
     const proceso = spawn('npx', ['ts-node', '--transpile-only', 'src/index.ts'], {
         cwd: ROOT,
-        env: { ...process.env, ENV_FILE, NODE_ENV: 'test', DATABASE_URL: env.DATABASE_URL },
+        env: { ...process.env, ENV_FILE, NODE_ENV: 'test', DATABASE_URL: env.DATABASE_URL, PORT: env.PORT },
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
     });

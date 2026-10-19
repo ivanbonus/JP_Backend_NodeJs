@@ -26,7 +26,7 @@ const MAX_ARCHIVOS_POR_ENVIO = 5;
 // ==========================================
 // Utilidades
 // ==========================================
-class ErrorValidacion extends Error {
+export class ErrorValidacion extends Error {
     constructor(message: string, public status = 400) { super(message); }
 }
 
@@ -61,8 +61,10 @@ const fechaValida = (v: unknown): Date => {
     return d;
 };
 
-const umbralActual = async (): Promise<Dec> =>
-    (await prisma.configuracion.findFirst({ select: { umbralRevision: true } }))?.umbralRevision ?? new D(2000);
+type Db = Prisma.TransactionClient | typeof prisma;
+
+const umbralActual = async (db: Db = prisma): Promise<Dec> =>
+    (await db.configuracion.findFirst({ select: { umbralRevision: true } }))?.umbralRevision ?? new D(2000);
 
 /** Inicio del día y del mes en hora de Lima (UTC-5, sin horario de verano). */
 const rangosLima = (ahora = new Date()) => {
@@ -268,11 +270,11 @@ export const obtenerMovimiento = async (req: Request, res: Response) => {
 };
 
 /** Valida y arma los datos de un movimiento (crear o editar). */
-const prepararMovimiento = async (b: any, actual?: { id: number }) => {
+const prepararMovimiento = async (b: any, actual?: { id: number }, db: Db = prisma) => {
     const tipo = b?.tipo === 'EGRESO' ? 'EGRESO' : b?.tipo === 'INGRESO' ? 'INGRESO' : null;
     if (!tipo) throw new ErrorValidacion('Indica si es un ingreso o un egreso.');
     const cuentaId = Number(b?.cuentaId);
-    const cuenta = Number.isInteger(cuentaId) ? await prisma.cuentaBancaria.findUnique({ where: { id: cuentaId } }) : null;
+    const cuenta = Number.isInteger(cuentaId) ? await db.cuentaBancaria.findUnique({ where: { id: cuentaId } }) : null;
     if (!cuenta) throw new ErrorValidacion('Selecciona la cuenta bancaria.');
     if (!cuenta.activa && !actual) throw new ErrorValidacion('La cuenta está desactivada.');
     const metodo = String(b?.metodo || '').toUpperCase();
@@ -294,11 +296,11 @@ const prepararMovimiento = async (b: any, actual?: { id: number }) => {
     // Referencias opcionales (venta/egreso, cliente, orden de trabajo)
     let transaccionId: number | null = null;
     if (b?.transaccionId) {
-        const t = await prisma.transaccion.findUnique({ where: { id: Number(b.transaccionId) } });
+        const t = await db.transaccion.findUnique({ where: { id: Number(b.transaccionId) } });
         if (!t || t.estado === 'ANULADO') throw new ErrorValidacion('La venta/egreso de referencia no existe o está anulada.');
         transaccionId = t.id;
         // Un pago no puede exceder el monto de la venta (sumando otros movimientos ya enlazados)
-        const otros = await prisma.movimientoBancario.aggregate({
+        const otros = await db.movimientoBancario.aggregate({
             where: { transaccionId: t.id, estado: { not: 'ANULADO' }, ...(actual ? { id: { not: actual.id } } : {}) },
             _sum: { montoPen: true },
         });
@@ -308,9 +310,9 @@ const prepararMovimiento = async (b: any, actual?: { id: number }) => {
         }
     }
     const clienteId = b?.clienteId ? Number(b.clienteId) : null;
-    if (clienteId && !(await prisma.cliente.findUnique({ where: { id: clienteId } }))) throw new ErrorValidacion('El cliente no existe.');
+    if (clienteId && !(await db.cliente.findUnique({ where: { id: clienteId } }))) throw new ErrorValidacion('El cliente no existe.');
     const numeroGuiaId = b?.numeroGuiaId ? Number(b.numeroGuiaId) : null;
-    if (numeroGuiaId && !(await prisma.numeroGuia.findUnique({ where: { id: numeroGuiaId } }))) throw new ErrorValidacion('La orden de trabajo no existe.');
+    if (numeroGuiaId && !(await db.numeroGuia.findUnique({ where: { id: numeroGuiaId } }))) throw new ErrorValidacion('La orden de trabajo no existe.');
 
     const contraparteNombre = texto(b?.contraparteNombre, 120);
     const contraparteDoc = documento(b?.contraparteDoc);
@@ -326,31 +328,37 @@ const prepararMovimiento = async (b: any, actual?: { id: number }) => {
     };
 };
 
+/**
+ * Crea un movimiento bancario validado. `db` puede ser una transacción de Prisma, para registrarlo
+ * junto con el pago de una venta (Finanzas) en una sola operación.
+ */
+export const registrarMovimiento = async (db: Prisma.TransactionClient, body: any, responsable: string) => {
+    const datos = await prepararMovimiento(body, undefined, db);
+    const umbral = await umbralActual(db);
+    const requiereRevision = datos.montoPen.gt(umbral);
+    // Ingreso sin saber quién lo depositó → "sin identificar"
+    const estado = datos.tipo === 'INGRESO' && !datos.contraparteNombre && !datos.clienteId ? 'SIN_IDENTIFICAR' : 'PENDIENTE';
+    const temporal = await db.movimientoBancario.create({
+        data: {
+            ...datos,
+            codigo: `TMP-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            responsable,
+            estado,
+            requiereRevision,
+            revisionEstado: requiereRevision ? 'PENDIENTE' : null,
+        },
+    });
+    const creado = await db.movimientoBancario.update({
+        where: { id: temporal.id },
+        data: { codigo: `MB-${datos.fecha.getUTCFullYear()}-${String(temporal.id).padStart(6, '0')}` },
+        include: incluirMovimiento,
+    });
+    return { creado, requiereRevision, umbral };
+};
+
 export const crearMovimiento = async (req: Request, res: Response) => {
     try {
-        const datos = await prepararMovimiento(req.body);
-        const umbral = await umbralActual();
-        const requiereRevision = datos.montoPen.gt(umbral);
-        // Ingreso sin saber quién lo depositó → "sin identificar"
-        const estado = datos.tipo === 'INGRESO' && !datos.contraparteNombre && !datos.clienteId ? 'SIN_IDENTIFICAR' : 'PENDIENTE';
-
-        const creado = await prisma.$transaction(async tx => {
-            const temporal = await tx.movimientoBancario.create({
-                data: {
-                    ...datos,
-                    codigo: `TMP-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    responsable: quien(req),
-                    estado,
-                    requiereRevision,
-                    revisionEstado: requiereRevision ? 'PENDIENTE' : null,
-                },
-            });
-            return tx.movimientoBancario.update({
-                where: { id: temporal.id },
-                data: { codigo: `MB-${datos.fecha.getUTCFullYear()}-${String(temporal.id).padStart(6, '0')}` },
-                include: incluirMovimiento,
-            });
-        });
+        const { creado, requiereRevision, umbral } = await prisma.$transaction(tx => registrarMovimiento(tx, req.body, quien(req)));
 
         res.status(201).json({
             ...(await conArchivos([creado]))[0],

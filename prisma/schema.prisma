@@ -216,9 +216,21 @@ model Transaccion {
   categoria      String    @default("Otros") // Venta, Servicio, etc
   fecha          String    // Formato DD/MM/YYYY para coincidir con front
   hora           String    // Formato HH:mm
-  estado         String    @default("COMPLETADO") // COMPLETADO, ANULADO
+  estado         String    @default("COMPLETADO") // PENDIENTE, PARCIAL, POR_VERIFICAR, COMPLETADO, ANULADO
   nota           String?
   cierreCajaId   Int?
+
+  // Pagos en partes: cada pago (adelanto o abono) es una transacción COMPLETADO con ventaId,
+  // con la fecha y el método del día en que se recibió. La venta queda con pagoEnPartes = true
+  // y NO se suma como ingreso (lo que entra a caja son sus pagos).
+  ventaId        Int?
+  pagoEnPartes   Boolean   @default(false)
+
+  // Pedidos web: el pago se verifica antes de contarlo como ingreso
+  operacionCliente String?  // n.º de operación que informó el cliente
+  verificadoPor  String?
+  verificadoEn   DateTime?
+  motivoAnulacion String?
 
   // Relaciones
   clienteId      Int?
@@ -228,7 +240,12 @@ model Transaccion {
   cliente        Cliente?  @relation(fields: [clienteId], references: [id])
   numeroGuia     NumeroGuia? @relation(fields: [numeroGuiaId], references: [id])
   cierreCaja     CierreCaja? @relation(fields: [cierreCajaId], references: [id])
+  venta          Transaccion?  @relation("PagosDeVenta", fields: [ventaId], references: [id])
+  pagos          Transaccion[] @relation("PagosDeVenta")
   movimientosBancarios MovimientoBancario[]
+
+  @@index([ventaId])
+  @@index([estado])
 }
 
 model CierreCaja {

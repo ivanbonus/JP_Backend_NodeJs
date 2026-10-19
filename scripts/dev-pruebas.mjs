@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
 
+// Modo navegador: puertos de .env.test (3100 y 5433) y datos en .pgdata-test
+process.env.JP_DEV_PRUEBAS = '1';
 const h = await import(pathToFileURL(path.join(ROOT, 'tests', 'helpers.mjs')).href);
 process.env.DATABASE_URL = h.env.DATABASE_URL;
 

@@ -8,3 +8,4 @@ node_modules
 /uploads
 /.pgdata-test
 /.pgdata-migraciones
+/.pgdata-suite

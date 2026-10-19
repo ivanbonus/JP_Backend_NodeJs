@@ -4,14 +4,20 @@ import path from 'path';
 import fs from 'fs';
 import { generarBoletaPdfKit } from '../utils/pdfKitGenerator';
 import { hoyLima, horaLima, normalizarFecha, variantesFecha } from '../utils/fechas';
-import { esSaldoInicial, prefijoNumero, siguienteCorrelativo } from '../utils/caja';
+import { esSaldoInicial, normalizarMetodoPago, prefijoNumero, siguienteCorrelativo } from '../utils/caja';
+import { ErrorCobro, devolverStockPedidoWeb, registrarEnBanco, responderErrorCobro, totalPagado } from './cobros.controller';
 
 // Obtener todas las transacciones (historial)
 export const getTransacciones = async (req: Request, res: Response) => {
   try {
     const transacciones = await prisma.transaccion.findMany({
       orderBy: { id: 'desc' },
-      include: { cliente: true, numeroGuia: true }
+      include: {
+        cliente: true,
+        numeroGuia: true,
+        // Para mostrar si el cobro ya figura en Control Bancario
+        movimientosBancarios: { where: { estado: { not: 'ANULADO' } }, select: { id: true, codigo: true, estado: true } },
+      }
     });
     res.json(transacciones);
   } catch (error) {
@@ -66,7 +72,7 @@ const guardarSaldoInicial = async (datos: { monto: number; fecha?: string; hora?
 
 export const createTransaccion = async (req: Request, res: Response) => {
   try {
-    const { numero, tipo, monto, metodoPago, concepto, categoria, fecha, hora, estado, nota, clienteNombre, numeroGuiaId } = req.body;
+    const { numero, tipo, monto, metodoPago, concepto, categoria, fecha, hora, estado, nota, clienteNombre, numeroGuiaId, banco } = req.body;
 
     // Validación básica (el número ya no es obligatorio: lo asigna el servidor)
     if (!tipo || !monto || !concepto || !metodoPago) {
@@ -76,6 +82,14 @@ export const createTransaccion = async (req: Request, res: Response) => {
     const montoNum = Number(monto);
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
       res.status(400).json({ error: 'El monto debe ser un número mayor a 0' });
+      return;
+    }
+
+    // PARCIAL y POR_VERIFICAR solo los asignan los cobros y la tienda web
+    const estadoInicial = estado === 'PENDIENTE' || estado === 'ANULADO' ? estado : 'COMPLETADO';
+    const conBanco = !!banco?.cuentaId;
+    if (conBanco && estadoInicial !== 'COMPLETADO') {
+      res.status(400).json({ error: 'Solo una operación ya cobrada o pagada se registra en el banco.' });
       return;
     }
 
@@ -99,26 +113,38 @@ export const createTransaccion = async (req: Request, res: Response) => {
 
     for (let intento = 0; intento < 8; intento++) {
       try {
-        const nuevaTxn = await prisma.transaccion.create({
-          data: {
-            numero: candidato,
-            tipo,
-            monto: montoNum,
-            metodoPago,
-            concepto,
-            categoria: categoria || 'Otros',
-            fecha: normalizarFecha(fecha) || hoyLima(),
-            hora: hora || horaLima(),
-            estado: estado || 'COMPLETADO',
-            nota,
-            clienteNombre,
-            numeroGuiaId: numeroGuiaId ? Number(numeroGuiaId) : null
-          }
+        const nuevaTxn = await prisma.$transaction(async tx => {
+          const creada = await tx.transaccion.create({
+            data: {
+              numero: candidato,
+              tipo,
+              monto: montoNum,
+              metodoPago,
+              concepto,
+              categoria: categoria || 'Otros',
+              fecha: normalizarFecha(fecha) || hoyLima(),
+              hora: hora || horaLima(),
+              estado: estadoInicial,
+              nota,
+              clienteNombre,
+              numeroGuiaId: numeroGuiaId ? Number(numeroGuiaId) : null
+            }
+          });
+          // Cobro o pago por transferencia/Yape/tarjeta: también queda en Control Bancario, enlazado
+          const movimientoBancario = conBanco
+            ? await registrarEnBanco(tx, req, {
+                transaccion: creada, monto: montoNum, metodo: normalizarMetodoPago(metodoPago),
+                concepto: `${concepto} (${creada.numero})`.slice(0, 200),
+              }, banco)
+            : null;
+          return { ...creada, movimientoBancario };
         });
         res.status(201).json(nuevaTxn);
         return;
       } catch (error) {
-        if (!esColisionUnica(error)) throw error;
+        // Solo un número de transacción repetido se reintenta; lo demás (validación del banco, n.º de operación repetido) se responde
+        const colisionNumero = esColisionUnica(error) && String((error as any)?.meta?.target ?? '').includes('numero');
+        if (!colisionNumero) return void responderErrorCobro(res, error, 'crear transacción');
         candidato = await siguiente(); // otro registro tomó ese número: se recalcula y se reintenta
       }
     }
@@ -129,27 +155,54 @@ export const createTransaccion = async (req: Request, res: Response) => {
   }
 };
 
-// Anular una transacción
-export const anularTransaccion = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
+// Anular una transacción (con las reglas de pagos en partes y pedidos web)
+const anularInterno = async (id: number, motivo: string | null) => {
+  return prisma.$transaction(async tx => {
+    const txn = await tx.transaccion.findUnique({ where: { id } });
+    if (!txn) throw new ErrorCobro('Transacción no encontrada', 404);
+    if (txn.estado === 'ANULADO') return { transaccion: txn, avisos: [] as string[] };
 
-    // Verificar si existe antes de actualizar
-    const txn = await prisma.transaccion.findUnique({ where: { id: Number(id) } });
-    if (!txn) {
-      res.status(404).json({ error: 'Transacción no encontrada' });
-      return;
-    }
+    const pagosActivos = await tx.transaccion.count({ where: { ventaId: id, estado: 'COMPLETADO' } });
+    if (pagosActivos) throw new ErrorCobro(`La venta tiene ${pagosActivos} pago(s) registrados: anúlalos primero.`, 409);
 
-    const updatedTxn = await prisma.transaccion.update({
-      where: { id: Number(id) },
-      data: { estado: 'ANULADO' }
+    const avisos: string[] = [];
+    // Un pedido web anulado antes de confirmarse devuelve el stock reservado
+    if (txn.estado === 'POR_VERIFICAR') await devolverStockPedidoWeb(tx, txn.numero);
+
+    const anulada = await tx.transaccion.update({
+      where: { id },
+      data: { estado: 'ANULADO', ...(motivo ? { motivoAnulacion: motivo } : {}) },
     });
 
-    res.json(updatedTxn);
+    // Si era un pago de una venta, se recalcula el estado de la venta
+    if (txn.ventaId) {
+      const venta = await tx.transaccion.findUnique({ where: { id: txn.ventaId } });
+      if (venta && venta.estado !== 'ANULADO') {
+        const pagado = await totalPagado(tx, venta.id);
+        await tx.transaccion.update({
+          where: { id: venta.id },
+          data: pagado <= 0.005
+            ? { estado: 'PENDIENTE', pagoEnPartes: false }
+            : { estado: pagado >= venta.monto - 0.005 ? 'COMPLETADO' : 'PARCIAL' },
+        });
+      }
+    }
+
+    const movs = await tx.movimientoBancario.findMany({ where: { transaccionId: id, estado: { not: 'ANULADO' } }, select: { codigo: true } });
+    if (movs.length) {
+      avisos.push(`Sigue registrado en Control Bancario (${movs.map(m => m.codigo).join(', ')}). Si el dinero no llegó, anúlalo también allí.`);
+    }
+    return { transaccion: anulada, avisos };
+  });
+};
+
+export const anularTransaccion = async (req: Request, res: Response) => {
+  try {
+    const motivo = typeof req.body?.motivo === 'string' ? req.body.motivo.trim().slice(0, 300) || null : null;
+    const { transaccion, avisos } = await anularInterno(Number(req.params.id), motivo);
+    res.json({ ...transaccion, avisos });
   } catch (error) {
-    console.error('Error al anular transacción:', error);
-    res.status(500).json({ error: 'Error del servidor al anular transacción' });
+    responderErrorCobro(res, error, 'anular transacción');
   }
 };
 
@@ -166,12 +219,56 @@ export const updateTransaccion = async (req: Request, res: Response) => {
       return;
     }
 
+    const cambia = (nuevo: unknown, actual: unknown) => nuevo !== undefined && String(nuevo) !== String(actual);
+
+    // Anular tiene sus propias reglas (solo administrador, pagos, stock de pedidos web)
+    if (estado === 'ANULADO' && txn.estado !== 'ANULADO') {
+      if (req.usuario?.rol !== 'ADMIN') {
+        res.status(403).json({ error: 'Solo el administrador puede anular operaciones.' });
+        return;
+      }
+      const { transaccion, avisos } = await anularInterno(txn.id, null);
+      res.json({ ...transaccion, avisos });
+      return;
+    }
+    // Un pago (adelanto/abono) no se edita: se anula y se registra de nuevo
+    if (txn.ventaId && (cambia(monto, txn.monto) || cambia(estado, txn.estado) || cambia(metodoPago, txn.metodoPago))) {
+      res.status(409).json({ error: 'Los pagos registrados no se modifican. Anula el pago y regístralo de nuevo.' });
+      return;
+    }
+    if (txn.estado === 'POR_VERIFICAR' && cambia(estado, txn.estado)) {
+      res.status(409).json({ error: 'Es un pedido web: usa «Verificar pago» para confirmarlo o rechazarlo.' });
+      return;
+    }
+    if ((estado === 'PARCIAL' || estado === 'POR_VERIFICAR') && estado !== txn.estado) {
+      res.status(400).json({ error: 'Ese estado lo asignan los cobros y la tienda web.' });
+      return;
+    }
+
     // Actualizar campos si son proporcionados
     const dataToUpdate: any = {};
     if (estado !== undefined) dataToUpdate.estado = estado;
     if (metodoPago !== undefined) dataToUpdate.metodoPago = metodoPago;
     if (monto !== undefined) dataToUpdate.monto = Number(monto);
     if (nota !== undefined) dataToUpdate.nota = nota;
+
+    // Venta con pagos en partes: el estado lo deciden los pagos; el total no puede quedar por debajo de lo cobrado
+    if (txn.pagoEnPartes) {
+      if (cambia(estado, txn.estado)) {
+        res.status(409).json({ error: 'La venta tiene pagos en partes: registra el cobro del saldo con «Registrar pago».' });
+        return;
+      }
+      delete dataToUpdate.estado;
+      delete dataToUpdate.metodoPago;
+      if (dataToUpdate.monto !== undefined) {
+        const pagado = await totalPagado(prisma, txn.id);
+        if (!Number.isFinite(dataToUpdate.monto) || dataToUpdate.monto < pagado - 0.005) {
+          res.status(409).json({ error: `El total no puede ser menor a lo ya cobrado (S/ ${pagado.toFixed(2)}).` });
+          return;
+        }
+        dataToUpdate.estado = dataToUpdate.monto <= pagado + 0.005 ? 'COMPLETADO' : 'PARCIAL';
+      }
+    }
 
     // Si pasa a COMPLETADO hoy y no tiene fecha actual, se le asigna la fecha de cobro actual opcionalmente.
     // De momento mantendremos la fecha original, o actualizamos si es negocio.
