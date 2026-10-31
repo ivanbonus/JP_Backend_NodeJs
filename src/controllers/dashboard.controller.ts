@@ -1,7 +1,17 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { partesLima, parsearFecha } from '../utils/fechas';
 import { normalizarMetodoPago, ETIQUETA_METODO, esSaldoInicial } from '../utils/caja';
+import { calcularResumenBancario } from './bancos.controller';
+import { calcularResumenCompras } from './compras.controller';
+
+const D = Prisma.Decimal;
+
+/** Una venta sin cobrar se considera vencida cuando pasaron más de estos días desde su fecha */
+export const DIAS_COBRO_VENCIDO = 30;
+/** Mismo criterio que la pantalla de Inventario */
+export const STOCK_BAJO = 5;
 
 export const getDashboardData = async (req: Request, res: Response) => {
   try {
@@ -82,6 +92,9 @@ export const getDashboardData = async (req: Request, res: Response) => {
     const alertasBackend = [];
     let contadorPagosPorCobrar = 0;
     let montoPagosPorCobrar = 0;
+    let contadorPorCobrarVencido = 0;
+    let montoPorCobrarVencido = 0;
+    const hoyUtc = Date.UTC(anioActual, mesActual, diaActual);
 
     // Generar alertas por Vehículo Listo (Ordenes en estado FINALIZADO)
     for (const guia of guias) {
@@ -168,17 +181,18 @@ export const getDashboardData = async (req: Request, res: Response) => {
       const anioTxn = partesFecha?.anio ?? 0;
       const metodo = ETIQUETA_METODO[normalizarMetodoPago(txn.metodoPago)];
 
-      if (txn.estado === 'PENDIENTE' && isIngreso) {
+      if ((txn.estado === 'PENDIENTE' || txn.estado === 'PARCIAL') && isIngreso) {
+        // Venta pagada en partes: queda por cobrar solo el saldo
+        const saldo = txn.estado === 'PARCIAL'
+          ? Math.max(0, txn.monto - txn.pagos.reduce((s, p) => s + p.monto, 0))
+          : txn.monto;
         porCobrar++;
         contadorPagosPorCobrar++;
-        montoPagosPorCobrar += txn.monto;
-      }
-      // Venta pagada en partes: queda por cobrar solo el saldo
-      if (txn.estado === 'PARCIAL' && isIngreso) {
-        const cobrado = txn.pagos.reduce((s, p) => s + p.monto, 0);
-        porCobrar++;
-        contadorPagosPorCobrar++;
-        montoPagosPorCobrar += Math.max(0, txn.monto - cobrado);
+        montoPagosPorCobrar += saldo;
+        if (partesFecha && (hoyUtc - Date.UTC(anioTxn, mesTxn, diaTxn)) / 86400000 > DIAS_COBRO_VENCIDO) {
+          contadorPorCobrarVencido++;
+          montoPorCobrarVencido += saldo;
+        }
       }
       if (txn.estado === 'POR_VERIFICAR' && isIngreso) pedidosPorVerificar++;
 
@@ -338,6 +352,8 @@ export const getDashboardData = async (req: Request, res: Response) => {
         egresosHoyPorMetodo: egresosPorMetodo,
         efectivoHoy: (ingresosPorMetodo['Efectivo'] || 0) - (egresosPorMetodo['Efectivo'] || 0),
         conteoPorCobrar: contadorPagosPorCobrar,
+        porCobrarVencido: { cantidad: contadorPorCobrarVencido, monto: montoPorCobrarVencido, dias: DIAS_COBRO_VENCIDO },
+        pedidosPorVerificar,
         vehiculosTaller: vehiculosEnTallerCount,
       },
       chartData: {
@@ -355,5 +371,56 @@ export const getDashboardData = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al obtener datos del dashboard:', error);
     res.status(500).json({ error: 'Error del servidor al obtener datos' });
+  }
+};
+
+/**
+ * Indicadores por área (pestañas del Dashboard). Las cifras de bancos y compras salen de las
+ * mismas funciones que usan sus módulos, para que siempre coincidan.
+ */
+export const getIndicadores = async (_req: Request, res: Response) => {
+  try {
+    const [bancos, compras, enTaller, listos, stockBajo, cotizaciones] = await Promise.all([
+      calcularResumenBancario(),
+      calcularResumenCompras(),
+      prisma.numeroGuia.count({ where: { estado: 'EN_PROCESO' } }),
+      prisma.numeroGuia.count({ where: { estado: 'FINALIZADO' } }),
+      prisma.producto.count({ where: { stockActual: { lte: STOCK_BAJO } } }),
+      prisma.cotizacion.count({ where: { estado: 'PENDIENTE' } }),
+    ]);
+
+    // Saldo total solo de las cuentas en soles; las de dólares se muestran aparte
+    const sumaSaldos = (moneda: string, campo: 'saldoConciliado' | 'saldoRegistrado') =>
+      bancos.saldos.filter(c => c.moneda === moneda).reduce((s, c) => s.add(c[campo]), new D(0)).toFixed(2);
+
+    res.json({
+      bancos: {
+        umbralRevision: bancos.umbralRevision,
+        saldoConciliadoPen: sumaSaldos('PEN', 'saldoConciliado'),
+        saldoRegistradoPen: sumaSaldos('PEN', 'saldoRegistrado'),
+        saldoConciliadoUsd: sumaSaldos('USD', 'saldoConciliado'),
+        hayCuentasUsd: bancos.saldos.some(c => c.moneda === 'USD'),
+        cuentas: bancos.saldos.length,
+        mes: bancos.mes,
+        pendientesConciliacion: bancos.pendientesConciliacion,
+        sinIdentificar: bancos.sinIdentificar,
+        revisionPendiente: bancos.revisionPendiente,
+        mayoresUmbralMes: bancos.mayoresUmbralMes,
+        sinComprobante: bancos.sinComprobante,
+      },
+      compras: {
+        mes: compras.mes,
+        pendientesPago: compras.pendientesPago,
+        vencidos: compras.vencidos,
+        porVencer7Dias: compras.porVencer7Dias,
+        sinArchivo: compras.sinArchivo,
+        pendientesRevision: compras.pendientesRevision,
+      },
+      taller: { enTaller, listos, cotizaciones },
+      inventario: { stockBajo, limite: STOCK_BAJO },
+    });
+  } catch (error) {
+    console.error('Error al obtener indicadores del dashboard:', error);
+    res.status(500).json({ error: 'Error del servidor al obtener indicadores' });
   }
 };

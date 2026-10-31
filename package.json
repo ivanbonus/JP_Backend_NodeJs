@@ -21,7 +21,8 @@
     "test:bancos": "node --test --test-concurrency=1 tests/fase2a.bancos.test.mjs",
     "test:conciliacion": "node --test --test-concurrency=1 tests/fase2b.conciliacion.test.mjs",
     "test:cobros": "node --test --test-concurrency=1 tests/fase2c.cobros.test.mjs",
-    "test:compras": "node --test --test-concurrency=1 tests/fase3.compras.test.mjs"
+    "test:compras": "node --test --test-concurrency=1 tests/fase3.compras.test.mjs",
+    "test:dashboard": "node --test --test-concurrency=1 tests/fase4.dashboard.test.mjs"
   },
   "keywords": [],
   "author": "",

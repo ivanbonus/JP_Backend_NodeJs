@@ -378,6 +378,7 @@ export const listarDocumentos = async (req: Request, res: Response) => {
         if (q.estadoRevision && ['PENDIENTE', 'REVISADO', 'OBSERVADO'].includes(q.estadoRevision)) where.estadoRevision = q.estadoRevision;
         if (q.contabilidad === 'pendiente') where.entregadoContabilidad = false;
         if (q.contabilidad === 'entregado') where.entregadoContabilidad = true;
+        if (q.sinArchivo === '1') where.id = { notIn: await idsConArchivo() };
         if (q.desde || q.hasta) {
             // fechaDia = mediodía de Lima: el día va de 12 h antes a 12 h después
             where.fechaEmision = {
@@ -811,63 +812,80 @@ export const cuentasPorPagar = async (req: Request, res: Response) => {
 // ==========================================
 // Resumen e historial
 // ==========================================
-export const resumenCompras = async (req: Request, res: Response) => {
+/** Ids de comprobantes con al menos un archivo (PDF o foto) vigente */
+const idsConArchivo = async () =>
+    (await prisma.archivo.findMany({ where: { entidad: ENTIDAD_ARCHIVO, eliminado: false }, select: { entidadId: true }, distinct: ['entidadId'] }))
+        .map(a => a.entidadId);
+
+/** Resumen de compras (lo usan Compras y Proveedores y el Dashboard, así ambos muestran las mismas cifras) */
+export const calcularResumenCompras = async () => {
+    const { inicioDia, inicioMes, inicioMesSiguiente } = rangosLima();
+    const delMes = { estado: 'ACTIVO', fechaEmision: { gte: inicioMes, lt: inicioMesSiguiente } } as const;
+    const [mes, pendRevision, observados, pendContabilidad, pagadasMes, duplicados, porProveedor, lineasMes] = await Promise.all([
+        prisma.documentoCompra.aggregate({ where: delMes, _count: true, _sum: { totalPen: true } }),
+        prisma.documentoCompra.count({ where: { estado: 'ACTIVO', estadoRevision: 'PENDIENTE' } }),
+        prisma.documentoCompra.count({ where: { estado: 'ACTIVO', estadoRevision: 'OBSERVADO' } }),
+        prisma.documentoCompra.count({ where: { estado: 'ACTIVO', entregadoContabilidad: false } }),
+        prisma.documentoCompra.count({ where: { ...delMes, estadoPago: 'PAGADO' } }),
+        prisma.documentoCompra.aggregate({ where: { intentosDuplicado: { gt: 0 } }, _sum: { intentosDuplicado: true }, _count: true }),
+        prisma.documentoCompra.groupBy({ by: ['proveedorId'], where: delMes, _sum: { totalPen: true }, _count: true, orderBy: { _sum: { totalPen: 'desc' } }, take: 8 }),
+        prisma.detalleCompra.findMany({
+            where: { documento: delMes },
+            select: { descripcion: true, unidad: true, cantidad: true, total: true, productoId: true, documento: { select: { moneda: true, tipoCambio: true } } },
+        }),
+    ]);
+    const proveedores = await prisma.proveedor.findMany({ where: { id: { in: porProveedor.map(p => p.proveedorId) } }, select: { id: true, razonSocial: true, ruc: true } });
+
+    // Cuentas por pagar (saldo total y vencido)
+    const abiertos = await prisma.documentoCompra.findMany({ where: { estado: 'ACTIVO', estadoPago: { not: 'PAGADO' } } });
+    const pagados = await pagadosPorDocumento(abiertos.map(d => d.id));
+    const en7 = sumarDias(inicioDia, 7);
+    let saldoPen = new D(0), vencidoPen = new D(0), vencidos = 0, porVencerPen = new D(0), porVencer = 0;
+    for (const d of abiertos) {
+        const x = conSaldo(d, pagados.get(d.id) ?? new D(0));
+        const s = d.moneda === 'PEN' ? new D(x.saldo) : d.total.gt(0) ? redondear2(new D(x.saldo).mul(d.totalPen).div(d.total)) : new D(0);
+        saldoPen = saldoPen.add(s);
+        if (x.vencido) { vencidos++; vencidoPen = vencidoPen.add(s); }
+        else if (d.fechaVencimiento && d.fechaVencimiento < en7) { porVencer++; porVencerPen = porVencerPen.add(s); }
+    }
+
+    // Comprobantes vigentes sin copia digital (PDF o foto)
+    const sinArchivo = await prisma.documentoCompra.count({ where: { estado: 'ACTIVO', id: { notIn: await idsConArchivo() } } });
+
+    // Productos comprados en el mes (agrupados por descripción/producto)
+    const productos = new Map<string, { descripcion: string; unidad: string; cantidad: Dec; totalPen: Dec; lineas: number }>();
+    for (const l of lineasMes) {
+        const clave = l.productoId ? `p${l.productoId}` : `${l.descripcion.toLowerCase()}|${l.unidad}`;
+        const tpen = l.documento.moneda === 'USD' && l.documento.tipoCambio ? redondear2(l.total.mul(l.documento.tipoCambio)) : l.total;
+        const p = productos.get(clave) ?? { descripcion: l.descripcion, unidad: l.unidad, cantidad: new D(0), totalPen: new D(0), lineas: 0 };
+        p.cantidad = p.cantidad.add(l.cantidad); p.totalPen = p.totalPen.add(tpen); p.lineas++;
+        productos.set(clave, p);
+    }
+
+    return {
+        mes: { documentos: mes._count, totalPen: (mes._sum.totalPen ?? new D(0)).toFixed(2), pagados: pagadasMes },
+        pendientesRevision: pendRevision,
+        observados,
+        pendientesPago: { documentos: abiertos.length, saldoPen: saldoPen.toFixed(2) },
+        vencidos: { documentos: vencidos, saldoPen: vencidoPen.toFixed(2) },
+        porVencer7Dias: { documentos: porVencer, saldoPen: porVencerPen.toFixed(2) },
+        sinArchivo,
+        pendientesContabilidad: pendContabilidad,
+        duplicadosDetectados: { comprobantes: duplicados._count, intentos: duplicados._sum.intentosDuplicado ?? 0 },
+        porProveedor: porProveedor.map(p => ({
+            proveedor: proveedores.find(x => x.id === p.proveedorId), documentos: p._count, totalPen: (p._sum.totalPen ?? new D(0)).toFixed(2),
+        })),
+        productosDelMes: {
+            distintos: productos.size,
+            principales: [...productos.values()].sort((a, b) => b.totalPen.cmp(a.totalPen)).slice(0, 8)
+                .map(p => ({ ...p, cantidad: p.cantidad.toString(), totalPen: p.totalPen.toFixed(2) })),
+        },
+    };
+};
+
+export const resumenCompras = async (_req: Request, res: Response) => {
     try {
-        const { inicioMes, inicioMesSiguiente } = rangosLima();
-        const delMes = { estado: 'ACTIVO', fechaEmision: { gte: inicioMes, lt: inicioMesSiguiente } } as const;
-        const [mes, pendRevision, observados, pendContabilidad, pagadasMes, duplicados, porProveedor, lineasMes] = await Promise.all([
-            prisma.documentoCompra.aggregate({ where: delMes, _count: true, _sum: { totalPen: true } }),
-            prisma.documentoCompra.count({ where: { estado: 'ACTIVO', estadoRevision: 'PENDIENTE' } }),
-            prisma.documentoCompra.count({ where: { estado: 'ACTIVO', estadoRevision: 'OBSERVADO' } }),
-            prisma.documentoCompra.count({ where: { estado: 'ACTIVO', entregadoContabilidad: false } }),
-            prisma.documentoCompra.count({ where: { ...delMes, estadoPago: 'PAGADO' } }),
-            prisma.documentoCompra.aggregate({ where: { intentosDuplicado: { gt: 0 } }, _sum: { intentosDuplicado: true }, _count: true }),
-            prisma.documentoCompra.groupBy({ by: ['proveedorId'], where: delMes, _sum: { totalPen: true }, _count: true, orderBy: { _sum: { totalPen: 'desc' } }, take: 8 }),
-            prisma.detalleCompra.findMany({
-                where: { documento: delMes },
-                select: { descripcion: true, unidad: true, cantidad: true, total: true, productoId: true, documento: { select: { moneda: true, tipoCambio: true } } },
-            }),
-        ]);
-        const proveedores = await prisma.proveedor.findMany({ where: { id: { in: porProveedor.map(p => p.proveedorId) } }, select: { id: true, razonSocial: true, ruc: true } });
-
-        // Cuentas por pagar (saldo total y vencido)
-        const abiertos = await prisma.documentoCompra.findMany({ where: { estado: 'ACTIVO', estadoPago: { not: 'PAGADO' } } });
-        const pagados = await pagadosPorDocumento(abiertos.map(d => d.id));
-        let saldoPen = new D(0), vencidoPen = new D(0), vencidos = 0;
-        for (const d of abiertos) {
-            const x = conSaldo(d, pagados.get(d.id) ?? new D(0));
-            const s = d.moneda === 'PEN' ? new D(x.saldo) : d.total.gt(0) ? redondear2(new D(x.saldo).mul(d.totalPen).div(d.total)) : new D(0);
-            saldoPen = saldoPen.add(s);
-            if (x.vencido) { vencidos++; vencidoPen = vencidoPen.add(s); }
-        }
-
-        // Productos comprados en el mes (agrupados por descripción/producto)
-        const productos = new Map<string, { descripcion: string; unidad: string; cantidad: Dec; totalPen: Dec; lineas: number }>();
-        for (const l of lineasMes) {
-            const clave = l.productoId ? `p${l.productoId}` : `${l.descripcion.toLowerCase()}|${l.unidad}`;
-            const tpen = l.documento.moneda === 'USD' && l.documento.tipoCambio ? redondear2(l.total.mul(l.documento.tipoCambio)) : l.total;
-            const p = productos.get(clave) ?? { descripcion: l.descripcion, unidad: l.unidad, cantidad: new D(0), totalPen: new D(0), lineas: 0 };
-            p.cantidad = p.cantidad.add(l.cantidad); p.totalPen = p.totalPen.add(tpen); p.lineas++;
-            productos.set(clave, p);
-        }
-
-        res.json({
-            mes: { documentos: mes._count, totalPen: (mes._sum.totalPen ?? new D(0)).toFixed(2), pagados: pagadasMes },
-            pendientesRevision: pendRevision,
-            observados,
-            pendientesPago: { documentos: abiertos.length, saldoPen: saldoPen.toFixed(2) },
-            vencidos: { documentos: vencidos, saldoPen: vencidoPen.toFixed(2) },
-            pendientesContabilidad: pendContabilidad,
-            duplicadosDetectados: { comprobantes: duplicados._count, intentos: duplicados._sum.intentosDuplicado ?? 0 },
-            porProveedor: porProveedor.map(p => ({
-                proveedor: proveedores.find(x => x.id === p.proveedorId), documentos: p._count, totalPen: (p._sum.totalPen ?? new D(0)).toFixed(2),
-            })),
-            productosDelMes: {
-                distintos: productos.size,
-                principales: [...productos.values()].sort((a, b) => b.totalPen.cmp(a.totalPen)).slice(0, 8)
-                    .map(p => ({ ...p, cantidad: p.cantidad.toString(), totalPen: p.totalPen.toFixed(2) })),
-            },
-        });
+        res.json(await calcularResumenCompras());
     } catch (e) { responderError(res, e, 'resumen de compras'); }
 };
 

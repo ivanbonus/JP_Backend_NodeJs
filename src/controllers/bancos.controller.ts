@@ -588,60 +588,64 @@ export const quitarArchivo = async (req: Request, res: Response) => {
 const sumar = async (where: Prisma.MovimientoBancarioWhereInput) =>
     (await prisma.movimientoBancario.aggregate({ where, _sum: { montoPen: true }, _count: true }));
 
+/** Resumen bancario (lo usan Control Bancario y el Dashboard, así ambos muestran las mismas cifras) */
+export const calcularResumenBancario = async (cuentaId?: number) => {
+    const { inicioDia, inicioMes } = rangosLima();
+    const base: Prisma.MovimientoBancarioWhereInput = { estado: { not: 'ANULADO' }, ...(cuentaId ? { cuentaId } : {}) };
+    const umbral = await umbralActual();
+
+    const [ingHoy, egrHoy, ingMes, egrMes, pendientes, sinIdentificar, revision, mayores] = await Promise.all([
+        sumar({ ...base, tipo: 'INGRESO', fecha: { gte: inicioDia } }),
+        sumar({ ...base, tipo: 'EGRESO', fecha: { gte: inicioDia } }),
+        sumar({ ...base, tipo: 'INGRESO', fecha: { gte: inicioMes } }),
+        sumar({ ...base, tipo: 'EGRESO', fecha: { gte: inicioMes } }),
+        sumar({ ...base, estado: { in: ['PENDIENTE', 'DIFERENCIA', 'REQUIERE_REVISION'] } }),
+        sumar({ ...base, estado: 'SIN_IDENTIFICAR' }),
+        sumar({ ...base, requiereRevision: true, revisionEstado: { in: ['PENDIENTE', 'OBSERVADO'] } }),
+        sumar({ ...base, requiereRevision: true, fecha: { gte: inicioMes } }),
+    ]);
+
+    // Movimientos sin comprobante
+    const conArchivo = await prisma.archivo.findMany({ where: { entidad: ENTIDAD_ARCHIVO, eliminado: false }, select: { entidadId: true }, distinct: ['entidadId'] });
+    const sinComprobante = await prisma.movimientoBancario.count({ where: { ...base, id: { notIn: conArchivo.map(a => a.entidadId) } } });
+
+    // Saldos por cuenta (en la moneda de la cuenta)
+    const cuentas = await prisma.cuentaBancaria.findMany({ where: { activa: true }, orderBy: { nombre: 'asc' } });
+    const grupos = await prisma.movimientoBancario.groupBy({
+        by: ['cuentaId', 'tipo', 'estado'],
+        where: { estado: { not: 'ANULADO' } },
+        _sum: { monto: true },
+    });
+    const saldos = cuentas.map(c => {
+        let registrado = new D(c.saldoInicial);
+        let conciliado = new D(c.saldoInicial);
+        for (const g of grupos.filter(g => g.cuentaId === c.id)) {
+            const v = g._sum.monto ?? new D(0);
+            const signo = g.tipo === 'INGRESO' ? 1 : -1;
+            registrado = registrado.add(v.mul(signo));
+            if (g.estado === 'CONCILIADO') conciliado = conciliado.add(v.mul(signo));
+        }
+        return { cuentaId: c.id, nombre: c.nombre, banco: c.banco, moneda: c.moneda, numeroMascara: enmascarar(c.numero), saldoRegistrado: registrado, saldoConciliado: conciliado };
+    });
+
+    const cero = new D(0);
+    return {
+        umbralRevision: umbral,
+        hoy: { ingresos: ingHoy._sum.montoPen ?? cero, egresos: egrHoy._sum.montoPen ?? cero, cantidad: ingHoy._count + egrHoy._count },
+        mes: { ingresos: ingMes._sum.montoPen ?? cero, egresos: egrMes._sum.montoPen ?? cero, cantidad: ingMes._count + egrMes._count },
+        pendientesConciliacion: { cantidad: pendientes._count, monto: pendientes._sum.montoPen ?? cero },
+        sinIdentificar: { cantidad: sinIdentificar._count, monto: sinIdentificar._sum.montoPen ?? cero },
+        revisionPendiente: { cantidad: revision._count, monto: revision._sum.montoPen ?? cero },
+        mayoresUmbralMes: { cantidad: mayores._count, monto: mayores._sum.montoPen ?? cero },
+        sinComprobante,
+        saldos,
+        almacenamiento: driverActual(),
+    };
+};
+
 export const resumenBancario = async (req: Request, res: Response) => {
     try {
-        const { inicioDia, inicioMes } = rangosLima();
-        const cuentaId = req.query.cuentaId ? Number(req.query.cuentaId) : undefined;
-        const base: Prisma.MovimientoBancarioWhereInput = { estado: { not: 'ANULADO' }, ...(cuentaId ? { cuentaId } : {}) };
-        const umbral = await umbralActual();
-
-        const [ingHoy, egrHoy, ingMes, egrMes, pendientes, sinIdentificar, revision, mayores] = await Promise.all([
-            sumar({ ...base, tipo: 'INGRESO', fecha: { gte: inicioDia } }),
-            sumar({ ...base, tipo: 'EGRESO', fecha: { gte: inicioDia } }),
-            sumar({ ...base, tipo: 'INGRESO', fecha: { gte: inicioMes } }),
-            sumar({ ...base, tipo: 'EGRESO', fecha: { gte: inicioMes } }),
-            sumar({ ...base, estado: { in: ['PENDIENTE', 'DIFERENCIA', 'REQUIERE_REVISION'] } }),
-            sumar({ ...base, estado: 'SIN_IDENTIFICAR' }),
-            sumar({ ...base, requiereRevision: true, revisionEstado: { in: ['PENDIENTE', 'OBSERVADO'] } }),
-            sumar({ ...base, requiereRevision: true, fecha: { gte: inicioMes } }),
-        ]);
-
-        // Movimientos sin comprobante
-        const conArchivo = await prisma.archivo.findMany({ where: { entidad: ENTIDAD_ARCHIVO, eliminado: false }, select: { entidadId: true }, distinct: ['entidadId'] });
-        const sinComprobante = await prisma.movimientoBancario.count({ where: { ...base, id: { notIn: conArchivo.map(a => a.entidadId) } } });
-
-        // Saldos por cuenta (en la moneda de la cuenta)
-        const cuentas = await prisma.cuentaBancaria.findMany({ where: { activa: true }, orderBy: { nombre: 'asc' } });
-        const grupos = await prisma.movimientoBancario.groupBy({
-            by: ['cuentaId', 'tipo', 'estado'],
-            where: { estado: { not: 'ANULADO' } },
-            _sum: { monto: true },
-        });
-        const saldos = cuentas.map(c => {
-            let registrado = new D(c.saldoInicial);
-            let conciliado = new D(c.saldoInicial);
-            for (const g of grupos.filter(g => g.cuentaId === c.id)) {
-                const v = g._sum.monto ?? new D(0);
-                const signo = g.tipo === 'INGRESO' ? 1 : -1;
-                registrado = registrado.add(v.mul(signo));
-                if (g.estado === 'CONCILIADO') conciliado = conciliado.add(v.mul(signo));
-            }
-            return { cuentaId: c.id, nombre: c.nombre, banco: c.banco, moneda: c.moneda, numeroMascara: enmascarar(c.numero), saldoRegistrado: registrado, saldoConciliado: conciliado };
-        });
-
-        const cero = new D(0);
-        res.json({
-            umbralRevision: umbral,
-            hoy: { ingresos: ingHoy._sum.montoPen ?? cero, egresos: egrHoy._sum.montoPen ?? cero, cantidad: ingHoy._count + egrHoy._count },
-            mes: { ingresos: ingMes._sum.montoPen ?? cero, egresos: egrMes._sum.montoPen ?? cero, cantidad: ingMes._count + egrMes._count },
-            pendientesConciliacion: { cantidad: pendientes._count, monto: pendientes._sum.montoPen ?? cero },
-            sinIdentificar: { cantidad: sinIdentificar._count, monto: sinIdentificar._sum.montoPen ?? cero },
-            revisionPendiente: { cantidad: revision._count, monto: revision._sum.montoPen ?? cero },
-            mayoresUmbralMes: { cantidad: mayores._count, monto: mayores._sum.montoPen ?? cero },
-            sinComprobante,
-            saldos,
-            almacenamiento: driverActual(),
-        });
+        res.json(await calcularResumenBancario(req.query.cuentaId ? Number(req.query.cuentaId) : undefined));
     } catch (e) { responderError(res, e, 'resumen bancario'); }
 };
 
