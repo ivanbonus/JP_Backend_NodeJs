@@ -4,7 +4,7 @@
 // - El estado de pago se calcula siempre desde las asignaciones de pago válidas.
 // - Un pago a proveedor es un EGRESO (Transaccion) que puede quedar también en Control Bancario;
 //   sus asignaciones lo reparten entre una o varias facturas (y una factura puede recibir varios pagos).
-// - Registrar una compra NO mueve el inventario: eso ocurre al confirmar la recepción (Fase 5).
+// - Registrar una compra NO mueve el inventario: eso ocurre al confirmar la recepción (recepcion.controller).
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
@@ -236,7 +236,7 @@ export const actualizarProveedor = async (req: Request, res: Response) => {
 // ==========================================
 type DetalleEntrada = {
     codigoProveedor: string | null; descripcion: string; unidad: string; cantidad: Dec; valorUnitario: Dec;
-    descuento: Dec; afectoIgv: boolean; igv: Dec; total: Dec; productoId: number | null;
+    descuento: Dec; afectoIgv: boolean; igv: Dec; total: Dec; productoId: number | null; unidadesPorCantidad: Dec;
 };
 
 const leerDetalles = async (lista: unknown): Promise<DetalleEntrada[]> => {
@@ -259,9 +259,13 @@ const leerDetalles = async (lista: unknown): Promise<DetalleEntrada[]> => {
         const total = l?.total !== undefined && l?.total !== '' ? dinero(l.total, `${fila}: el total`, { cero: true }) : subtotal.add(igv);
         const productoId = l?.productoId ? Number(l.productoId) : null;
         if (productoId && !productos.has(productoId)) throw new ErrorCompra(`${fila}: el producto del inventario no existe.`);
+        // Unidades de inventario por cada unidad facturada (1 si se compra por unidad)
+        const unidadesPorCantidad = l?.unidadesPorCantidad !== undefined && l?.unidadesPorCantidad !== ''
+            ? decimal(l.unidadesPorCantidad, `${fila}: las unidades por ${(texto(l?.unidad, 20) || 'UND').toUpperCase()}`, 4)
+            : new D(1);
         return {
             codigoProveedor: texto(l?.codigoProveedor, 60), descripcion, unidad: (texto(l?.unidad, 20) || 'UND').toUpperCase(),
-            cantidad, valorUnitario, descuento, afectoIgv, igv, total, productoId,
+            cantidad, valorUnitario, descuento, afectoIgv, igv, total, productoId, unidadesPorCantidad,
         };
     });
 };
@@ -343,12 +347,22 @@ const incluirDocumento = {
 } as const;
 
 /** Detalle completo: líneas, pagos (con su egreso y movimiento bancario) y archivos */
-const documentoCompleto = async (id: number) => {
+export const documentoCompleto = async (id: number) => {
     const doc = await prisma.documentoCompra.findUnique({
         where: { id },
         include: {
             ...incluirDocumento,
-            detalles: { orderBy: { orden: 'asc' }, include: { producto: { select: { id: true, sku: true, nombre: true } } } },
+            detalles: {
+                orderBy: { orden: 'asc' },
+                include: {
+                    producto: { select: { id: true, sku: true, nombre: true, stockActual: true } },
+                    // Ingresos al inventario de cada línea (y sus reversiones)
+                    recepciones: {
+                        orderBy: { id: 'asc' },
+                        select: { id: true, tipo: true, cantidad: true, motivo: true, fecha: true, responsable: true, costoUnitario: true, observacion: true, revierteId: true, revertidoPor: { select: { id: true } } },
+                    },
+                },
+            },
             asignaciones: {
                 orderBy: { id: 'asc' },
                 include: {
@@ -379,6 +393,10 @@ export const listarDocumentos = async (req: Request, res: Response) => {
         if (q.contabilidad === 'pendiente') where.entregadoContabilidad = false;
         if (q.contabilidad === 'entregado') where.entregadoContabilidad = true;
         if (q.sinArchivo === '1') where.id = { notIn: await idsConArchivo() };
+        if (q.porRecibir === '1') {
+            where.estadoRecepcion = { in: ['PENDIENTE', 'PARCIAL'] };
+            where.detalles = { some: { noInventariable: false } };
+        }
         if (q.desde || q.hasta) {
             // fechaDia = mediodía de Lima: el día va de 12 h antes a 12 h después
             where.fechaEmision = {
@@ -849,6 +867,11 @@ export const calcularResumenCompras = async () => {
         else if (d.fechaVencimiento && d.fechaVencimiento < en7) { porVencer++; porVencerPen = porVencerPen.add(s); }
     }
 
+    // Comprobantes con productos del inventario aún por recibir
+    const porRecibir = await prisma.documentoCompra.count({
+        where: { estado: 'ACTIVO', estadoRecepcion: { in: ['PENDIENTE', 'PARCIAL'] }, detalles: { some: { noInventariable: false } } },
+    });
+
     // Comprobantes vigentes sin copia digital (PDF o foto)
     const sinArchivo = await prisma.documentoCompra.count({ where: { estado: 'ACTIVO', id: { notIn: await idsConArchivo() } } });
 
@@ -870,6 +893,7 @@ export const calcularResumenCompras = async () => {
         vencidos: { documentos: vencidos, saldoPen: vencidoPen.toFixed(2) },
         porVencer7Dias: { documentos: porVencer, saldoPen: porVencerPen.toFixed(2) },
         sinArchivo,
+        porRecibir,
         pendientesContabilidad: pendContabilidad,
         duplicadosDetectados: { comprobantes: duplicados._count, intentos: duplicados._sum.intentosDuplicado ?? 0 },
         porProveedor: porProveedor.map(p => ({

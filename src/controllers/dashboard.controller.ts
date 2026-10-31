@@ -5,6 +5,7 @@ import { partesLima, parsearFecha } from '../utils/fechas';
 import { normalizarMetodoPago, ETIQUETA_METODO, esSaldoInicial } from '../utils/caja';
 import { calcularResumenBancario } from './bancos.controller';
 import { calcularResumenCompras } from './compras.controller';
+import { alzasDeCosto } from '../utils/costos';
 
 const D = Prisma.Decimal;
 
@@ -380,13 +381,14 @@ export const getDashboardData = async (req: Request, res: Response) => {
  */
 export const getIndicadores = async (_req: Request, res: Response) => {
   try {
-    const [bancos, compras, enTaller, listos, stockBajo, cotizaciones] = await Promise.all([
+    const [bancos, compras, enTaller, listos, stockBajo, cotizaciones, costos] = await Promise.all([
       calcularResumenBancario(),
       calcularResumenCompras(),
       prisma.numeroGuia.count({ where: { estado: 'EN_PROCESO' } }),
       prisma.numeroGuia.count({ where: { estado: 'FINALIZADO' } }),
       prisma.producto.count({ where: { stockActual: { lte: STOCK_BAJO } } }),
       prisma.cotizacion.count({ where: { estado: 'PENDIENTE' } }),
+      alzasDeCosto(),
     ]);
 
     // Saldo total solo de las cuentas en soles; las de dólares se muestran aparte
@@ -415,9 +417,13 @@ export const getIndicadores = async (_req: Request, res: Response) => {
         porVencer7Dias: compras.porVencer7Dias,
         sinArchivo: compras.sinArchivo,
         pendientesRevision: compras.pendientesRevision,
+        porRecibir: compras.porRecibir,
       },
       taller: { enTaller, listos, cotizaciones },
-      inventario: { stockBajo, limite: STOCK_BAJO },
+      inventario: {
+        stockBajo, limite: STOCK_BAJO,
+        alzasCosto: { cantidad: costos.alzas.length, umbralPct: costos.umbralAlzaPct, principales: costos.alzas.slice(0, 5) },
+      },
     });
   } catch (error) {
     console.error('Error al obtener indicadores del dashboard:', error);

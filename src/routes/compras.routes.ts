@@ -7,6 +7,7 @@ import {
     subirArchivosDocumento, enlaceArchivoCompra, quitarArchivoCompra,
     registrarPagoProveedor, anularAsignacion, pagosDisponibles, cuentasPorPagar,
 } from '../controllers/compras.controller';
+import { recibirMercaderia, revertirRecepcion } from '../controllers/recepcion.controller';
 import { requireRole } from '../middlewares/auth.middleware';
 import { ROLES } from '../auth/security';
 
@@ -33,6 +34,10 @@ router.post('/documentos/:id/archivos', subirArchivosDocumento);
 
 router.get('/archivos/:id/enlace', enlaceArchivoCompra);
 router.delete('/archivos/:id', soloAdministrador, quitarArchivoCompra);
+
+// Recepción de mercadería: el stock sube al recibir, no al registrar la factura
+router.post('/documentos/:id/recepcion', recibirMercaderia);
+router.post('/recepciones/:movimientoId/revertir', soloAdministrador, revertirRecepcion);
 
 router.get('/por-pagar', cuentasPorPagar);
 router.get('/pagos/disponibles', pagosDisponibles);

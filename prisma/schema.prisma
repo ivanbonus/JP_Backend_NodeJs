@@ -193,14 +193,28 @@ model MovimientoInventario {
   productoId     Int
   tipo           String    // ENTRADA, SALIDA
   cantidad       Int
-  motivo         String?   // COMPRA, USO_TALLER, VENTA_DIRECTA, AJUSTE
+  motivo         String?   // COMPRA, USO_TALLER, VENTA_DIRECTA, AJUSTE, RECEPCION_COMPRA, REVERSION_RECEPCION
   fecha          DateTime  @default(now())
   
   // Relación opcional con OT si salió para un taller
   numeroGuiaId   Int?
 
+  // Trazabilidad (Fase 5): quién, stock que quedó y documento de origen
+  responsable     String?
+  observacion     String?
+  stockResultante Int?
+  costoUnitario   Decimal?  @db.Decimal(14, 4) // en soles, sin IGV, por unidad de inventario (recepciones)
+  detalleCompraId Int?      // línea de la factura de compra recibida
+  revierteId      Int?      @unique // movimiento que este anula (las recepciones no se borran: se revierten)
+
   producto       Producto  @relation(fields: [productoId], references: [id])
   numeroGuia     NumeroGuia? @relation(fields: [numeroGuiaId], references: [id])
+  detalleCompra  DetalleCompra? @relation(fields: [detalleCompraId], references: [id])
+  revierte       MovimientoInventario? @relation("Reversion", fields: [revierteId], references: [id])
+  revertidoPor   MovimientoInventario? @relation("Reversion")
+
+  @@index([productoId, fecha])
+  @@index([detalleCompraId])
 }
 
 // ==========================================
@@ -302,6 +316,9 @@ model Configuracion {
 
   // Control bancario: operaciones mayores a este monto (en soles) requieren revisión administrativa
   umbralRevision    Decimal  @default(2000) @db.Decimal(14, 2)
+
+  // Inventario: aviso cuando el costo de un producto sube más de este porcentaje frente a la compra anterior
+  umbralAlzaCosto   Decimal  @default(10) @db.Decimal(5, 2)
 }
 
 // ==========================================
@@ -674,9 +691,14 @@ model DetalleCompra {
   total            Decimal  @db.Decimal(14, 2) // con IGV
   productoId       Int?     // producto del inventario (opcional)
   cantidadRecibida Decimal  @default(0) @db.Decimal(14, 4) // recepción de mercadería (Fase 5)
+  // Unidades de inventario que trae cada unidad facturada (p. ej. 1 CAJA = 10 UND); permite comparar costos
+  unidadesPorCantidad Decimal @default(1) @db.Decimal(14, 4)
+  // Flete, servicio u otro concepto que no ingresa al inventario (se marca al recibir)
+  noInventariable  Boolean  @default(false)
 
   documento        DocumentoCompra @relation(fields: [documentoId], references: [id], onDelete: Cascade)
   producto         Producto?       @relation(fields: [productoId], references: [id])
+  recepciones      MovimientoInventario[]
 
   @@index([documentoId])
   @@index([productoId])

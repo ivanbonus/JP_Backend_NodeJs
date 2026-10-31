@@ -150,7 +150,8 @@ test('taller e inventario: vehículos en taller y stock bajo con el criterio de 
         ],
     });
     const ind = await indicadores();
-    assert.deepEqual(ind.inventario, { stockBajo: 2, limite: 5 });
+    assert.equal(ind.inventario.stockBajo, 2);
+    assert.equal(ind.inventario.limite, 5);
     const dash = (await pedir('GET', '/dashboard', { token })).data;
     assert.equal(ind.taller.enTaller, dash.kpis.vehiculosTaller);
 });
